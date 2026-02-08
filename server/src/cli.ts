@@ -15,7 +15,7 @@ program
   .description(chalk.blue('Zhuanfa 内网穿透服务端'))
   .version('0.0.1')
   .option('-p, --port <port>', '控制端口', '9000')
-  .option('-h, --host <address>', '监听地址', '0.0.0.0')
+  .option('-a, --host <address>', '监听地址', '0.0.0.0')
   .option('-t, --tokens <tokens>', '认证令牌（逗号分隔）', 'jidexiugaio')
   .option('-c, --config <path>', '配置文件路径')
   .option('--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000')
