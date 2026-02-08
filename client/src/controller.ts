@@ -11,7 +11,7 @@ import {
   NewConnectionMessage,
   ConnectionCloseMessage,
   ConnectionErrorMessage,
-} from '@feng3d/zhuanfa-shared';
+} from '@feng3d/chuantou-shared';
 import { Config } from './config.js';
 
 /**

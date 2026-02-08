@@ -10,15 +10,15 @@ export { Controller } from './controller.js';
 export { ProxyManager } from './proxy-manager.js';
 export { HttpHandler } from './handlers/http-handler.js';
 export { WsHandler } from './handlers/ws-handler.js';
-export type { ClientConfig, ProxyConfig } from '@feng3d/zhuanfa-shared';
+export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
 
 /**
  * 主入口（独立运行模式）
  */
 async function main(): Promise<void> {
-  console.log('Starting Zhuanfa Client...');
+  console.log('Starting Chuantou Client...');
 
-  // 加载配置（从用户目录 .zhuanfa/client.json 或命令行参数）
+  // 加载配置（从用户目录 .chuantou/client.json 或命令行参数）
   const config = await Config.load();
 
   // 验证配置

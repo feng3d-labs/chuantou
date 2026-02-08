@@ -14,9 +14,9 @@ const __dirname = path.dirname(__filename);
 
 const packages = [
   { name: 'root', dir: path.join(__dirname, '..'), displayName: chalk.gray('root') },
-  { name: '@feng3d/zhuanfa-shared', dir: path.join(__dirname, '..', 'shared'), displayName: chalk.cyan('@feng3d/zhuanfa-shared') },
-  { name: '@feng3d/zhuanfa-server', dir: path.join(__dirname, '..', 'server'), displayName: chalk.blue('@feng3d/zhuanfa-server') },
-  { name: '@feng3d/zhuanfa-client', dir: path.join(__dirname, '..', 'client'), displayName: chalk.green('@feng3d/zhuanfa-client') },
+  { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'shared'), displayName: chalk.cyan('@feng3d/chuantou-shared') },
+  { name: '@feng3d/chuantou-server', dir: path.join(__dirname, '..', 'server'), displayName: chalk.blue('@feng3d/chuantou-server') },
+  { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'client'), displayName: chalk.green('@feng3d/chuantou-client') },
 ];
 
 /**
@@ -36,9 +36,9 @@ function setPackageVersion(pkgDir, version) {
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
   pkg.version = version;
 
-  // 如果包依赖了 @feng3d/zhuanfa-shared，也更新其版本
-  if (pkg.dependencies && pkg.dependencies['@feng3d/zhuanfa-shared']) {
-    pkg.dependencies['@feng3d/zhuanfa-shared'] = `^${version}`;
+  // 如果包依赖了 @feng3d/chuantou-shared，也更新其版本
+  if (pkg.dependencies && pkg.dependencies['@feng3d/chuantou-shared']) {
+    pkg.dependencies['@feng3d/chuantou-shared'] = `^${version}`;
   }
 
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
@@ -85,7 +85,7 @@ program
     if (options.dryRun) {
       console.log(chalk.yellow.bold('\n🔍 预览模式\n'));
     } else {
-      console.log(chalk.cyan.bold('\n⚡ Zhuanfa 版本管理\n'));
+      console.log(chalk.cyan.bold('\n⚡ Chuantou 版本管理\n'));
     }
 
     // 显示当前版本

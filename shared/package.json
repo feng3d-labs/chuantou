@@ -1,5 +1,5 @@
 {
-  "name": "@feng3d/zhuanfa-shared",
+  "name": "@feng3d/chuantou-shared",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",

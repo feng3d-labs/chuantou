@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { MessageType, createMessage, AuthRespMessage, ErrorCode } from '@feng3d/zhuanfa-shared';
+import { MessageType, createMessage, AuthRespMessage, ErrorCode } from '@feng3d/chuantou-shared';
 
 /**
  * 认证管理器

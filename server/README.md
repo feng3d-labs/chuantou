@@ -1,4 +1,4 @@
-# @feng3d/zhuanfa-server
+# @feng3d/chuantou-server
 
 内网穿透转发系统的服务端，负责接收公网请求并转发给内网客户端。
 
@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-npm install @feng3d/zhuanfa-server
+npm install @feng3d/chuantou-server
 ```
 
 ## 使用
@@ -22,22 +22,22 @@ npm install @feng3d/zhuanfa-server
 
 ```bash
 # 使用默认配置
-zhuanfa-server
+chuantou-server
 
 # 指定端口
-zhuanfa-server --port 9000
+chuantou-server --port 9000
 
 # 指定认证令牌
-zhuanfa-server --tokens token1,token2,token3
+chuantou-server --tokens token1,token2,token3
 
 # 使用配置文件
-zhuanfa-server --config /path/to/config.json
+chuantou-server --config /path/to/config.json
 ```
 
 ### 作为库使用
 
 ```typescript
-import { ForwardServer, Config } from '@feng3d/zhuanfa-server';
+import { ForwardServer, Config } from '@feng3d/chuantou-server';
 
 const config = new Config({
   host: '0.0.0.0',
@@ -57,14 +57,14 @@ await server.start();
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--config` | 配置文件路径 | `~/.zhuanfa/server.json` |
+| `--config` | 配置文件路径 | `~/.chuantou/server.json` |
 | `--port` | 控制端口 | `9000` |
 | `--host` | 监听地址 | `0.0.0.0` |
 | `--tokens` | 认证令牌（逗号分隔） | `jidexiugaio` |
 
 ### 配置文件
 
-配置文件路径：`~/.zhuanfa/server.json`
+配置文件路径：`~/.chuantou/server.json`
 
 ```json
 {
@@ -79,7 +79,7 @@ await server.start();
 ## 架构
 
 ```
-公网用户请求 → 服务端监听端口 → WebSocket 控制通道 → 内网客户端 → 本地服务
+公网用户请求 -> 服务端监听端口 -> WebSocket 控制通道 -> 内网客户端 -> 本地服务
 ```
 
 ## 与客户端通信

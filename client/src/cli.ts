@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Zhuanfa Client CLI
- * @feng3d/zhuanfa-client
+ * Chuantou Client CLI
+ * @feng3d/chuantou-client
  */
 
 import { Command } from 'commander';
@@ -11,8 +11,8 @@ import { run } from './index.js';
 const program = new Command();
 
 program
-  .name('zhuanfa-client')
-  .description(chalk.green('Zhuanfa 内网穿透客户端'))
+  .name('chuantou-client')
+  .description(chalk.green('穿透内网穿透客户端'))
   .version('0.0.1')
   .option('-s, --server <url>', '服务器地址 (如 ws://localhost:9000)', 'ws://localhost:9000')
   .option('-t, --token <token>', '认证令牌', 'jidexiugaio')

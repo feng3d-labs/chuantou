@@ -18,9 +18,9 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const packages = [
-  { name: '@feng3d/zhuanfa-shared', dir: path.join(__dirname, '..', 'shared') },
-  { name: '@feng3d/zhuanfa-server', dir: path.join(__dirname, '..', 'server') },
-  { name: '@feng3d/zhuanfa-client', dir: path.join(__dirname, '..', 'client') },
+  { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'shared') },
+  { name: '@feng3d/chuantou-server', dir: path.join(__dirname, '..', 'server') },
+  { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'client') },
 ];
 
 // 解析命令行参数
@@ -96,7 +96,7 @@ function execCommand(cmd, args, options = {}) {
  */
 async function main() {
   console.log('========================================');
-  console.log('  Zhuanfa 统一发布脚本');
+  console.log('  Chuantou 统一发布脚本');
   console.log('========================================\n');
 
   if (dryRun) {

@@ -1,8 +1,8 @@
 import { Controller } from './controller.js';
-import { ProxyConfig } from '@feng3d/zhuanfa-shared';
+import { ProxyConfig } from '@feng3d/chuantou-shared';
 import { HttpHandler } from './handlers/http-handler.js';
 import { WsHandler } from './handlers/ws-handler.js';
-import { MessageType, createMessage, RegisterMessage, UnregisterMessage, RegisterRespMessage } from '@feng3d/zhuanfa-shared';
+import { MessageType, createMessage, RegisterMessage, UnregisterMessage, RegisterRespMessage } from '@feng3d/chuantou-shared';
 
 /**
  * 代理管理器 - 管理所有代理

@@ -1,4 +1,4 @@
-# @feng3d/zhuanfa-client
+# @feng3d/chuantou-client
 
 内网穿透转发系统的客户端，运行在内网机器上，将本地服务暴露到公网。
 
@@ -13,7 +13,7 @@
 ## 安装
 
 ```bash
-npm install @feng3d/zhuanfa-client
+npm install @feng3d/chuantou-client
 ```
 
 ## 使用
@@ -22,25 +22,25 @@ npm install @feng3d/zhuanfa-client
 
 ```bash
 # 使用默认配置
-zhuanfa-client
+chuantou-client
 
 # 指定服务器地址
-zhuanfa-client --server ws://your-server.com:9000
+chuantou-client --server ws://your-server.com:9000
 
 # 指定认证令牌
-zhuanfa-client --token your-token
+chuantou-client --token your-token
 
 # 指定代理配置
-zhuanfa-client --proxies "8080:http:3000:localhost,8081:ws:3001"
+chuantou-client --proxies "8080:http:3000:localhost,8081:ws:3001"
 
 # 使用配置文件
-zhuanfa-client --config /path/to/config.json
+chuantou-client --config /path/to/config.json
 ```
 
 ### 作为库使用
 
 ```typescript
-import { Controller, ProxyManager } from '@feng3d/zhuanfa-client';
+import { Controller, ProxyManager } from '@feng3d/chuantou-client';
 
 const config = {
   serverUrl: 'ws://your-server.com:9000',
@@ -63,7 +63,7 @@ await controller.connect();
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `--config` | 配置文件路径 | `~/.zhuanfa/client.json` |
+| `--config` | 配置文件路径 | `~/.chuantou/client.json` |
 | `--server` | 服务器地址 | `ws://localhost:9000` |
 | `--token` | 认证令牌 | `jidexiugaio` |
 | `--proxies` | 代理配置 | `8080:http:3000:localhost,8081:ws:3001` |
@@ -85,7 +85,7 @@ remotePort:protocol:localPort:localHost
 
 ### 配置文件
 
-配置文件路径：`~/.zhuanfa/client.json`
+配置文件路径：`~/.chuantou/client.json`
 
 ```json
 {

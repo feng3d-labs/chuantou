@@ -1,0 +1,120 @@
+name: Publish to npm
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  check-version:
+    name: Check if version changed
+    runs-on: ubuntu-latest
+    outputs:
+      version-changed: ${{ steps.check.outputs.changed }}
+      new-version: ${{ steps.check.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Check for version changes
+        id: check
+        run: |
+          # 获取当前提交的版本号
+          CURRENT_VERSION=$(node -p "require('./package.json').version")
+
+          # 获取上一次提交的版本号
+          git checkout HEAD~1 -- package.json shared/package.json client/package.json server/package.json
+          PREV_VERSION=$(node -p "require('./package.json').version")
+
+          # 恢复当前版本的 package.json
+          git checkout HEAD -- package.json shared/package.json client/package.json server/package.json
+
+          # 比较版本号
+          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
+            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Version changed from $PREV_VERSION to $CURRENT_VERSION"
+          else
+            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
+            echo "Version unchanged: $CURRENT_VERSION"
+          fi
+
+  publish:
+    name: Publish packages to npm
+    needs: check-version
+    if: needs.check-version.outputs.version-changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    strategy:
+      matrix:
+        package:
+          - name: shared
+            path: ./shared
+            npm-name: "@feng3d/chuantou-shared"
+          - name: client
+            path: ./client
+            npm-name: "@feng3d/chuantou-client"
+          - name: server
+            path: ./server
+            npm-name: "@feng3d/chuantou-server"
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Publish ${{ matrix.package.npm-name }}
+        run: |
+          cd ${{ matrix.package.path }}
+          npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  create-release:
+    name: Create GitHub Release
+    needs: [check-version, publish]
+    if: needs.check-version.outputs.version-changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Create Release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: v${{ needs.check-version.outputs.new-version }}
+          release_name: Release v${{ needs.check-version.outputs.new-version }}
+          body: |
+            ## Changes in v${{ needs.check-version.outputs.new-version }}
+
+            Published packages:
+            - @feng3d/chuantou-shared@${{ needs.check-version.outputs.new-version }}
+            - @feng3d/chuantou-client@${{ needs.check-version.outputs.new-version }}
+            - @feng3d/chuantou-server@${{ needs.check-version.outputs.new-version }}
+          draft: false
+          prerelease: false

@@ -1,13 +1,13 @@
 import { EventEmitter } from 'events';
 import { Controller } from '../controller.js';
-import { ProxyConfig, HttpHeaders } from '@feng3d/zhuanfa-shared';
+import { ProxyConfig, HttpHeaders } from '@feng3d/chuantou-shared';
 import {
   MessageType,
   createMessage,
   NewConnectionMessage,
   ConnectionCloseMessage,
   HttpResponseData,
-} from '@feng3d/zhuanfa-shared';
+} from '@feng3d/chuantou-shared';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { URL } from 'url';

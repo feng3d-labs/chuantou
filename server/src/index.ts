@@ -7,15 +7,15 @@ import { ForwardServer } from './server.js';
 export { Config } from './config.js';
 export { ForwardServer } from './server.js';
 export { SessionManager } from './session-manager.js';
-export type { ServerConfig } from '@feng3d/zhuanfa-shared';
+export type { ServerConfig } from '@feng3d/chuantou-shared';
 
 /**
  * 主入口（独立运行模式）
  */
 async function main(): Promise<void> {
-  console.log('Starting Zhuanfa Server...');
+  console.log('Starting Chuantou Server...');
 
-  // 加载配置（从用户目录 .zhuanfa/server.json 或命令行参数）
+  // 加载配置（从用户目录 .chuantou/server.json 或命令行参数）
   const config = await Config.load();
 
   // 验证配置

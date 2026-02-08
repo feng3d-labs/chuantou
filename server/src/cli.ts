@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Zhuanfa Server CLI
- * @feng3d/zhuanfa-server
+ * Chuantou Server CLI
+ * @feng3d/chuantou-server
  */
 
 import { Command } from 'commander';
@@ -11,8 +11,8 @@ import { run } from './index.js';
 const program = new Command();
 
 program
-  .name('zhuanfa-server')
-  .description(chalk.blue('Zhuanfa 内网穿透服务端'))
+  .name('chuantou-server')
+  .description(chalk.blue('穿透内网穿透服务端'))
   .version('0.0.1')
   .option('-p, --port <port>', '控制端口', '9000')
   .option('-a, --host <address>', '监听地址', '0.0.0.0')

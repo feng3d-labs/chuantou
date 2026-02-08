@@ -1,11 +1,11 @@
 {
-  "name": "@feng3d/zhuanfa-client",
+  "name": "@feng3d/chuantou-client",
   "version": "0.0.1",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "zhuanfa-client": "./dist/cli.js"
+    "chuantou-client": "./dist/cli.js"
   },
   "exports": {
     ".": {
@@ -22,7 +22,7 @@
     "start": "node dist/cli.js"
   },
   "dependencies": {
-    "@feng3d/zhuanfa-shared": "^0.0.1",
+    "@feng3d/chuantou-shared": "^0.0.1",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "uuid": "^9.0.1",

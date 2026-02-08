@@ -1,6 +1,6 @@
 import { WebSocket } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import { ClientInfo, ConnectionInfo, DEFAULT_CONFIG } from '@feng3d/zhuanfa-shared';
+import { ClientInfo, ConnectionInfo, DEFAULT_CONFIG } from '@feng3d/chuantou-shared';
 
 /**
  * 会话管理器 - 管理所有连接的客户端

@@ -1,14 +1,14 @@
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/zhuanfa-shared';
+import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/chuantou-shared';
 
 /**
  * 获取配置目录路径
  */
 function getConfigDir(): string {
   const homeDir = os.homedir();
-  return path.join(homeDir, '.zhuanfa');
+  return path.join(homeDir, '.chuantou');
 }
 
 /**

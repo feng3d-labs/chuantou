@@ -1,4 +1,4 @@
-# @feng3d/zhuanfa-shared
+# @feng3d/chuantou-shared
 
 内网穿透转发系统的共享类型定义和消息协议。
 
@@ -12,13 +12,13 @@
 ## 安装
 
 ```bash
-npm install @feng3d/zhuanfa-shared
+npm install @feng3d/chuantou-shared
 ```
 
 ## 使用
 
 ```typescript
-import { MessageType, ProxyConfig, ClientConfig } from '@feng3d/zhuanfa-shared';
+import { MessageType, ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared';
 
 // 创建代理配置
 const proxyConfig: ProxyConfig = {
