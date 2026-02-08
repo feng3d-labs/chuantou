@@ -1,6 +1,6 @@
 ---
 name: chuantou
-description: Internal network tunneling system (like ngrok/frp) for exposing local services to the internet. 内网穿透转发系统（穿透）. Use when Claude needs to: (1) Start a tunnel server for NAT traversal / 启动内网穿透服务端, (2) Connect a tunnel client to expose local ports / 连接穿透客户端暴露本地端口, (3) Configure proxy forwarding (HTTP/WebSocket) / 配置代理转发, (4) Set up TLS/HTTPS for secure tunneling / 启用 TLS 加密隧道, (5) Debug tunneling connection issues / 调试穿透连接问题. Keywords: 内网穿透, 穿透, 端口转发, NAT穿透, ngrok, frp, 隧道, 暴露本地服务.
+description: Internal network tunneling system (like ngrok/frp) for exposing local services to the internet. 内网穿透转发系统. Use for starting tunnel servers, connecting clients, configuring proxy forwarding (HTTP/WebSocket), setting up TLS/HTTPS, and debugging tunneling issues. Keywords: 内网穿透, 穿透, 端口转发, NAT穿透, ngrok, frp, 隧道, 暴露本地服务.
 ---
 
 # Chuantou / 穿透
