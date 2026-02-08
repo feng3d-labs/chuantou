@@ -7,7 +7,7 @@ import { ForwardServer } from './server';
 export { Config } from './config';
 export { ForwardServer } from './server';
 export { SessionManager } from './session-manager';
-export type { ServerConfig } from '@zhuanfa/shared';
+export type { ServerConfig } from '@feng3d/zhuanfa-shared';
 
 /**
  * 主入口（独立运行模式）

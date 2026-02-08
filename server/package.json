@@ -22,7 +22,7 @@
     "dev": "ts-node src/index.ts"
   },
   "dependencies": {
-    "@feng3d/zhuanfa-shared": "*",
+    "@feng3d/zhuanfa-shared": "^0.0.1",
     "uuid": "^9.0.1",
     "ws": "^8.16.0"
   },

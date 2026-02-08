@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * CLI 入口文件，用于 npx @zhuanfa/client 运行
+ * CLI 入口文件，用于 npx @feng3d/zhuanfa-client 运行
  * 此文件会直接执行编译后的 JavaScript 代码
  */
 

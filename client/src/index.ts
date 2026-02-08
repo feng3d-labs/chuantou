@@ -10,7 +10,7 @@ export { Controller } from './controller';
 export { ProxyManager } from './proxy-manager';
 export { HttpHandler } from './handlers/http-handler';
 export { WsHandler } from './handlers/ws-handler';
-export type { ClientConfig, ProxyConfig } from '@zhuanfa/shared';
+export type { ClientConfig, ProxyConfig } from '@feng3d/zhuanfa-shared';
 
 /**
  * 主入口（独立运行模式）

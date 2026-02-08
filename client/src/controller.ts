@@ -11,7 +11,7 @@ import {
   NewConnectionMessage,
   ConnectionCloseMessage,
   ConnectionErrorMessage,
-} from '@zhuanfa/shared';
+} from '@feng3d/zhuanfa-shared';
 import { Config } from './config';
 
 /**

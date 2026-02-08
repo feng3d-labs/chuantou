@@ -14,9 +14,9 @@ const path = require('path');
 
 const packages = [
   { name: 'root', dir: path.join(__dirname, '..') },
-  { name: '@zhuanfa/shared', dir: path.join(__dirname, '..', 'shared') },
-  { name: '@zhuanfa/server', dir: path.join(__dirname, '..', 'server') },
-  { name: '@zhuanfa/client', dir: path.join(__dirname, '..', 'client') },
+  { name: '@feng3d/zhuanfa-shared', dir: path.join(__dirname, '..', 'shared') },
+  { name: '@feng3d/zhuanfa-server', dir: path.join(__dirname, '..', 'server') },
+  { name: '@feng3d/zhuanfa-client', dir: path.join(__dirname, '..', 'client') },
 ];
 
 /**

@@ -10,7 +10,7 @@ import {
   UnregisterMessage,
   ErrorCode,
   ProtocolError,
-} from '@zhuanfa/shared';
+} from '@feng3d/zhuanfa-shared';
 import { SessionManager } from '../session-manager';
 import { Config } from '../config';
 import { HttpProxyHandler } from './http-proxy';

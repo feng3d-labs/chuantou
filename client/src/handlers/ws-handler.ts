@@ -1,13 +1,13 @@
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
 import { Controller } from '../controller';
-import { ProxyConfig, HttpHeaders } from '@zhuanfa/shared';
+import { ProxyConfig, HttpHeaders } from '@feng3d/zhuanfa-shared';
 import {
   MessageType,
   createMessage,
   NewConnectionMessage,
   ConnectionCloseMessage,
-} from '@zhuanfa/shared';
+} from '@feng3d/zhuanfa-shared';
 
 /**
  * WebSocket连接处理器

@@ -1,7 +1,7 @@
 import { promises as fs } from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { ServerConfig, DEFAULT_CONFIG } from '@zhuanfa/shared';
+import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/zhuanfa-shared';
 
 /**
  * 获取配置目录路径
