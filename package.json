@@ -14,7 +14,10 @@
     "start:client": "npm run start --workspace=client",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
-    "build": "npm run build --workspaces",
+    "build": "npm run build --workspaces && node scripts/post-build.js transform",
+    "build:dev": "npm run build --workspaces",
+    "prepublishOnly": "npm run build && node scripts/post-build.js transform",
+    "postpublish": "node scripts/post-build.js restore",
     "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules"
   },
   "keywords": ["proxy", "tunnel", "nat"],

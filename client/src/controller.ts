@@ -12,7 +12,7 @@ import {
   ConnectionCloseMessage,
   ConnectionErrorMessage,
 } from '@zhuanfa/shared';
-import { Config } from './config.js';
+import { Config } from './config';
 
 /**
  * 控制器 - 管理与服务器的连接

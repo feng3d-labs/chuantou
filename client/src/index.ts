@@ -1,21 +1,25 @@
-import { Config } from './config.js';
-import { Controller } from './controller.js';
-import { ProxyManager } from './proxy-manager.js';
-import * as path from 'path';
+import { Config } from './config';
+import { Controller } from './controller';
+import { ProxyManager } from './proxy-manager';
 
 /**
- * 主入口
+ * 导出核心类，供作为库使用时引用
+ */
+export { Config } from './config';
+export { Controller } from './controller';
+export { ProxyManager } from './proxy-manager';
+export { HttpHandler } from './handlers/http-handler';
+export { WsHandler } from './handlers/ws-handler';
+export type { ClientConfig, ProxyConfig } from '@zhuanfa/shared';
+
+/**
+ * 主入口（独立运行模式）
  */
 async function main(): Promise<void> {
   console.log('Starting Zhuanfa Client...');
 
-  // 加载配置
-  const configPath = process.env.CONFIG_PATH || path.join(process.cwd(), 'config', 'default.json');
-  const config = await Config.fromFile(configPath);
-
-  // 环境变量覆盖
-  const envConfig = Config.fromEnv();
-  Object.assign(config, envConfig);
+  // 加载配置（从用户目录 .zhuanfa/client.json 或命令行参数）
+  const config = await Config.load();
 
   // 验证配置
   config.validate();
@@ -63,14 +67,14 @@ async function main(): Promise<void> {
 
   // 优雅关闭
   process.on('SIGINT', async () => {
-    console.log('\\nReceived SIGINT, shutting down gracefully...');
+    console.log('\nReceived SIGINT, shutting down gracefully...');
     await proxyManager.destroy();
     controller.disconnect();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    console.log('\\nReceived SIGTERM, shutting down gracefully...');
+    console.log('\nReceived SIGTERM, shutting down gracefully...');
     await proxyManager.destroy();
     controller.disconnect();
     process.exit(0);
@@ -86,7 +90,10 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((error) => {
-  console.error('Failed to start client:', error);
-  process.exit(1);
-});
+// 检查是否作为主模块运行
+if (require.main === module) {
+  main().catch((error) => {
+    console.error('Failed to start client:', error);
+    process.exit(1);
+  });
+}

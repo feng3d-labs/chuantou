@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { Controller } from '../controller.js';
+import { Controller } from '../controller';
 import { ProxyConfig, HttpHeaders } from '@zhuanfa/shared';
 import {
   MessageType,

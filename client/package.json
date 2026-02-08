@@ -2,6 +2,20 @@
   "name": "@zhuanfa/client",
   "version": "0.0.1",
   "main": "src/index.ts",
+  "types": "src/index.ts",
+  "bin": {
+    "zhuanfa-client": "./bin/cli.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./src/index.ts",
+      "types": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "bin"
+  ],
   "scripts": {
     "build": "tsc",
     "start": "ts-node src/index.ts",

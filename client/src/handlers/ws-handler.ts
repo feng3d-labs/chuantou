@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { WebSocket } from 'ws';
-import { Controller } from '../controller.js';
+import { Controller } from '../controller';
 import { ProxyConfig, HttpHeaders } from '@zhuanfa/shared';
 import {
   MessageType,

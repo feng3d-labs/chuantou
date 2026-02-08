@@ -2,7 +2,7 @@ import { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import { MessageType, createMessage, NewConnectionMessage, ConnectionCloseMessage, HttpResponseData } from '@zhuanfa/shared';
-import { SessionManager } from '../session-manager.js';
+import { SessionManager } from '../session-manager';
 
 /**
  * HTTP代理处理器

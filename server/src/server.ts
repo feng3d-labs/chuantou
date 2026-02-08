@@ -1,9 +1,9 @@
 import { WebSocketServer } from 'ws';
-import { Config } from './config.js';
-import { SessionManager } from './session-manager.js';
-import { ControlHandler } from './handlers/control-handler.js';
-import { HttpProxyHandler } from './handlers/http-proxy.js';
-import { WsProxyHandler } from './handlers/ws-proxy.js';
+import { Config } from './config';
+import { SessionManager } from './session-manager';
+import { ControlHandler } from './handlers/control-handler';
+import { HttpProxyHandler } from './handlers/http-proxy';
+import { WsProxyHandler } from './handlers/ws-proxy';
 
 /**
  * 转发服务器
