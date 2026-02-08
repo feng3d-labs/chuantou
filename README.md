@@ -7,7 +7,7 @@
 ### 方式一：Claude Code Skills（推荐）
 
 ```bash
-npx skills add @feng3d/chuantou-skills
+npx skills add feng3d-labs/chuantou
 ```
 
 安装后可在对话中直接使用，如："启动穿透服务端"或"使用穿透客户端连接到服务器"。

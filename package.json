@@ -42,11 +42,11 @@
   "license": "ISC",
   "repository": {
     "type": "git",
-    "url": "https://gitee.com/feng3d/chuantou.git"
+    "url": "https://github.com/feng3d-labs/chuantou.git"
   },
-  "homepage": "https://gitee.com/feng3d/chuantou",
+  "homepage": "https://github.com/feng3d-labs/chuantou",
   "bugs": {
-    "url": "https://gitee.com/feng3d/chuantou/issues"
+    "url": "https://github.com/feng3d-labs/chuantou/issues"
   },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",
