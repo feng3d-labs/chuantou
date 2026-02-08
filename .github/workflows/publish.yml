@@ -51,19 +51,6 @@ jobs:
       contents: read
       id-token: write
 
-    strategy:
-      matrix:
-        package:
-          - name: shared
-            path: ./shared
-            npm-name: "@feng3d/chuantou-shared"
-          - name: client
-            path: ./client
-            npm-name: "@feng3d/chuantou-client"
-          - name: server
-            path: ./server
-            npm-name: "@feng3d/chuantou-server"
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -83,10 +70,8 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish ${{ matrix.package.npm-name }}
-        run: |
-          cd ${{ matrix.package.path }}
-          npm publish --access public
+      - name: Publish all packages
+        run: npm run publish:all
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -101,20 +86,64 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # 获取上一个版本标签
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+
+          if [ -z "$PREV_TAG" ]; then
+            # 如果没有上一个标签，获取最近 10 条提交
+            echo "## 更新内容" > changelog.md
+            echo "" >> changelog.md
+            git log -10 --pretty=format:"- %s" >> changelog.md
+          else
+            # 获取自上一个标签以来的所有提交
+            echo "## 自 ${PREV_TAG} 以来的更新" > changelog.md
+            echo "" >> changelog.md
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s" >> changelog.md
+          fi
+
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          cat changelog.md >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Create Release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-version.outputs.new-version }}
-          release_name: Release v${{ needs.check-version.outputs.new-version }}
+          name: Release v${{ needs.check-version.outputs.new-version }}
           body: |
-            ## Changes in v${{ needs.check-version.outputs.new-version }}
+            ${{ steps.changelog.outputs.changelog }}
 
-            Published packages:
+            ---
+
+            ## 发布包
+
+            - @feng3d/chuantou@${{ needs.check-version.outputs.new-version }} (包含 Claude Code Skill)
             - @feng3d/chuantou-shared@${{ needs.check-version.outputs.new-version }}
             - @feng3d/chuantou-client@${{ needs.check-version.outputs.new-version }}
             - @feng3d/chuantou-server@${{ needs.check-version.outputs.new-version }}
+
+            ## 安装 Skill
+
+            ```bash
+            npx skills add @feng3d/chuantou
+            ```
+
+            ## 使用命令
+
+            ```bash
+            # 服务端
+            npx @feng3d/chuantou-server
+
+            # 客户端
+            npx @feng3d/chuantou-client
+            ```
           draft: false
           prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

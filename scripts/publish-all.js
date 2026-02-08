@@ -21,6 +21,7 @@ const packages = [
   { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'shared') },
   { name: '@feng3d/chuantou-server', dir: path.join(__dirname, '..', 'server') },
   { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'client') },
+  { name: '@feng3d/chuantou', dir: path.join(__dirname, '..') },
 ];
 
 // 解析命令行参数
