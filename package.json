@@ -1,12 +1,27 @@
 {
   "name": "@feng3d/chuantou",
   "version": "0.0.1",
-  "private": true,
-  "description": "穿透 - 内网穿透转发系统",
+  "description": "穿透 - 内网穿透转发系统 | Claude Code Skills",
+  "keywords": [
+    "chuantou",
+    "穿透",
+    "tunnel",
+    "proxy",
+    "nat",
+    "内网穿透",
+    "端口转发",
+    "claude-code",
+    "skills",
+    "agent",
+    "ai"
+  ],
   "workspaces": [
     "shared",
     "client",
     "server"
+  ],
+  "files": [
+    ".claude"
   ],
   "scripts": {
     "install:all": "npm install",
@@ -23,13 +38,6 @@
     "version": "node scripts/set-version.js",
     "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules shared/dist client/dist server/dist"
   },
-  "keywords": [
-    "proxy",
-    "tunnel",
-    "nat",
-    "内网穿透",
-    "端口转发"
-  ],
   "author": "",
   "license": "ISC",
   "devDependencies": {
