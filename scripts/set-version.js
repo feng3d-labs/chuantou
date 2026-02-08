@@ -1,22 +1,22 @@
 #!/usr/bin/env node
 /**
  * 统一设置所有包的版本号
- *
- * 使用方法：
- *   node scripts/set-version.js 1.0.0        # 设置版本号
- *   node scripts/set-version.js major        # 升级主版本号
- *   node scripts/set-version.js minor        # 升级次版本号
- *   node scripts/set-version.js patch        # 升级补丁版本号
  */
 
-const fs = require('fs');
-const path = require('path');
+import { Command } from 'commander';
+import chalk from 'chalk';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const packages = [
-  { name: 'root', dir: path.join(__dirname, '..') },
-  { name: '@feng3d/zhuanfa-shared', dir: path.join(__dirname, '..', 'shared') },
-  { name: '@feng3d/zhuanfa-server', dir: path.join(__dirname, '..', 'server') },
-  { name: '@feng3d/zhuanfa-client', dir: path.join(__dirname, '..', 'client') },
+  { name: 'root', dir: path.join(__dirname, '..'), displayName: chalk.gray('root') },
+  { name: '@feng3d/zhuanfa-shared', dir: path.join(__dirname, '..', 'shared'), displayName: chalk.cyan('@feng3d/zhuanfa-shared') },
+  { name: '@feng3d/zhuanfa-server', dir: path.join(__dirname, '..', 'server'), displayName: chalk.blue('@feng3d/zhuanfa-server') },
+  { name: '@feng3d/zhuanfa-client', dir: path.join(__dirname, '..', 'client'), displayName: chalk.green('@feng3d/zhuanfa-client') },
 ];
 
 /**
@@ -29,12 +29,18 @@ function getPackageVersion(pkgDir) {
 }
 
 /**
- * 设置包的版本号
+ * 设置包的版本号，同时更新依赖的 shared 包版本
  */
 function setPackageVersion(pkgDir, version) {
   const pkgPath = path.join(pkgDir, 'package.json');
   const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
   pkg.version = version;
+
+  // 如果包依赖了 @feng3d/zhuanfa-shared，也更新其版本
+  if (pkg.dependencies && pkg.dependencies['@feng3d/zhuanfa-shared']) {
+    pkg.dependencies['@feng3d/zhuanfa-shared'] = `^${version}`;
+  }
+
   fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
   return pkg.name || path.basename(pkgDir);
 }
@@ -57,41 +63,60 @@ function bumpVersion(version, type) {
   }
 }
 
-/**
- * 主流程
- */
-function main() {
-  const input = process.argv[2];
+const program = new Command();
 
-  if (!input) {
-    console.log('用法: node scripts/set-version.js <version|major|minor|patch>');
-    console.log('  node scripts/set-version.js 1.0.0   # 设置版本号');
-    console.log('  node scripts/set-version.js major   # 升级主版本号');
-    console.log('  node scripts/set-version.js minor   # 升级次版本号');
-    console.log('  node scripts/set-version.js patch   # 升级补丁版本号');
-    process.exit(1);
-  }
+program
+  .name('set-version')
+  .description('统一设置所有包的版本号')
+  .argument('[version|type]', '版本号 (如 1.0.0) 或升级类型 (major/minor/patch)', 'patch')
+  .option('-d, --dry-run', '预览模式，不实际修改')
+  .action((input, options) => {
+    const currentVersion = getPackageVersion(packages[0].dir);
+    let newVersion;
+    let isBump = false;
 
-  // 获取当前版本号
-  const currentVersion = getPackageVersion(packages[0].dir);
-  let newVersion;
+    if (['major', 'minor', 'patch'].includes(input)) {
+      isBump = true;
+      newVersion = bumpVersion(currentVersion, input);
+    } else {
+      newVersion = input;
+    }
 
-  if (['major', 'minor', 'patch'].includes(input)) {
-    newVersion = bumpVersion(currentVersion, input);
-    console.log(`升级版本号: ${currentVersion} -> ${newVersion} (${input})\n`);
-  } else {
-    newVersion = input;
-    console.log(`设置版本号: ${currentVersion} -> ${newVersion}\n`);
-  }
+    if (options.dryRun) {
+      console.log(chalk.yellow.bold('\n🔍 预览模式\n'));
+    } else {
+      console.log(chalk.cyan.bold('\n⚡ Zhuanfa 版本管理\n'));
+    }
 
-  // 设置所有包的版本号
-  console.log('更新以下包的版本号:');
-  packages.forEach(pkg => {
-    const name = setPackageVersion(pkg.dir, newVersion);
-    console.log(`  ✓ ${name}`);
+    // 显示当前版本
+    console.log(`${chalk.gray('当前版本:')} ${chalk.white.bold(currentVersion)}`);
+
+    // 显示变更
+    if (isBump) {
+      const typeColor = input === 'major' ? 'red' : input === 'minor' ? 'yellow' : 'green';
+      console.log(`${chalk.gray('升级类型:')} ${chalk[typeColor](input)}`);
+    }
+    console.log(`${chalk.gray('新版本:')} ${chalk.white.bold(newVersion)}`);
+    console.log();
+
+    // 显示将要更新的包
+    console.log(chalk.gray('将更新以下包:'));
+
+    if (!options.dryRun) {
+      packages.forEach(pkg => {
+        setPackageVersion(pkg.dir, newVersion);
+        console.log(`  ${chalk.green('✓')} ${pkg.displayName} ${chalk.gray(`→ ${newVersion}`)}`);
+      });
+      console.log();
+      console.log(chalk.green.bold('✅ 所有包版本号已更新!'));
+    } else {
+      packages.forEach(pkg => {
+        console.log(`  ${chalk.yellow('○')} ${pkg.displayName} ${chalk.gray(`→ ${newVersion}`)}`);
+      });
+      console.log();
+      console.log(chalk.yellow.bold('⚠️  预览模式，未实际修改'));
+    }
+    console.log();
   });
 
-  console.log(`\n✅ 所有包版本号已设置为 ${newVersion}\n`);
-}
-
-main();
+program.parse();
