@@ -128,9 +128,11 @@ jobs:
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s" >> changelog.md
           fi
 
-          echo "changelog<<EOF" >> $GITHUB_OUTPUT
-          cat changelog.md >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          {
+            echo 'changelog<<EOF'
+            cat changelog.md
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
