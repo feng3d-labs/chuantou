@@ -1,6 +1,6 @@
 ---
 name: chuantou
-description: Internal network tunneling system for NAT traversal, port forwarding, and exposing local services. Use for: starting tunnel servers, connecting clients, configuring HTTP/WebSocket proxies, setting up TLS, and debugging connections. Keywords: tunnel, proxy, ngrok, frp, NAT traversal, port forwarding.
+description: Internal network tunneling system like ngrok or frp for exposing local services to the internet. Supports NAT traversal and port forwarding.
 ---
 
 # Chuantou / 穿透
