@@ -101,6 +101,11 @@ export interface ServerConfig {
   authTokens: string[];
   heartbeatInterval: number;
   sessionTimeout: number;
+  // TLS 证书配置
+  tls?: {
+    key: string;
+    cert: string;
+  };
 }
 
 /**

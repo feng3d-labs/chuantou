@@ -18,6 +18,8 @@ program
   .option('-a, --host <address>', '监听地址', '0.0.0.0')
   .option('-t, --tokens <tokens>', '认证令牌（逗号分隔）', 'jidexiugaio')
   .option('-c, --config <path>', '配置文件路径')
+  .option('--tls-key <path>', 'TLS 私钥文件路径（启用 HTTPS/WSS）')
+  .option('--tls-cert <path>', 'TLS 证书文件路径（启用 HTTPS/WSS）')
   .option('--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000')
   .option('--session-timeout <ms>', '会话超时（毫秒）', '60000')
   .action(async (options) => {
@@ -26,6 +28,8 @@ program
     if (options.host) process.argv.push('--host', options.host);
     if (options.tokens) process.argv.push('--tokens', options.tokens);
     if (options.config) process.argv.push('--config', options.config);
+    if (options.tlsKey) process.argv.push('--tls-key', options.tlsKey);
+    if (options.tlsCert) process.argv.push('--tls-cert', options.tlsCert);
 
     // 运行主程序
     await run();
