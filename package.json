@@ -22,7 +22,7 @@
     "server"
   ],
   "files": [
-    ".claude"
+    "SKILL.md"
   ],
   "scripts": {
     "install:all": "npm install",
