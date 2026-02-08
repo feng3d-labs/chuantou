@@ -54,6 +54,22 @@ jobs:
       contents: read
       id-token: write
 
+    strategy:
+      matrix:
+        package:
+          - name: shared
+            path: ./shared
+            npm-name: "@feng3d/chuantou-shared"
+          - name: client
+            path: ./client
+            npm-name: "@feng3d/chuantou-client"
+          - name: server
+            path: ./server
+            npm-name: "@feng3d/chuantou-server"
+          - name: chuantou
+            path: ./
+            npm-name: "@feng3d/chuantou"
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -73,8 +89,10 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish all packages
-        run: npm run publish:all
+      - name: Publish ${{ matrix.package.npm-name }}
+        run: |
+          cd ${{ matrix.package.path }}
+          npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
