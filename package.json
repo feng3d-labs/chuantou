@@ -1,6 +1,6 @@
 {
   "name": "@feng3d/chuantou",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "穿透 - 内网穿透转发系统 | Claude Code Skills",
   "keywords": [
     "chuantou",
@@ -40,6 +40,14 @@
   },
   "author": "",
   "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://gitee.com/feng3d/chuantou.git"
+  },
+  "homepage": "https://gitee.com/feng3d/chuantou",
+  "bugs": {
+    "url": "https://gitee.com/feng3d/chuantou/issues"
+  },
   "devDependencies": {
     "@vitest/coverage-v8": "^2.1.8",
     "@vitest/ui": "^2.1.8",
