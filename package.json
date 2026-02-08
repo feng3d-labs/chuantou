@@ -34,7 +34,6 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
-    "publish:all": "node scripts/publish-all.js",
     "publish:dry": "node scripts/publish-all.js --dry-run",
     "version": "node scripts/set-version.js",
     "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules shared/dist client/dist server/dist"
