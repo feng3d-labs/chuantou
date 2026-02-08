@@ -116,7 +116,7 @@ async function main() {
   // 2. 构建所有包
   console.log('构建所有包...\n');
   try {
-    await execCommand('npm', ['run', 'build:dev'], { cwd: path.join(__dirname, '..') });
+    await execCommand('npm', ['run', 'build'], { cwd: path.join(__dirname, '..') });
   } catch (error) {
     console.error('\n❌ 构建失败');
     process.exit(1);
