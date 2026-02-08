@@ -1,5 +1,5 @@
 {
-  "name": "@zhuanfa/client",
+  "name": "@feng3d/zhuanfa-client",
   "version": "0.0.1",
   "main": "src/index.ts",
   "types": "src/index.ts",
@@ -22,7 +22,7 @@
     "dev": "ts-node src/index.ts"
   },
   "dependencies": {
-    "@zhuanfa/shared": "*",
+    "@feng3d/zhuanfa-shared": "*",
     "uuid": "^9.0.1",
     "ws": "^8.16.0"
   },
