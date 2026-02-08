@@ -6,12 +6,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { fileURLToPath } from 'url';
-import path from 'path';
-import { dirname } from 'path';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+import { run } from './index.js';
 
 const program = new Command();
 
@@ -25,15 +20,15 @@ program
   .option('-c, --config <path>', '配置文件路径')
   .option('--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000')
   .option('--session-timeout <ms>', '会话超时（毫秒）', '60000')
-  .action((options) => {
+  .action(async (options) => {
     // 将命令行参数转换为环境变量，供 Config.load() 读取
     if (options.port) process.argv.push('--port', options.port);
     if (options.host) process.argv.push('--host', options.host);
     if (options.tokens) process.argv.push('--tokens', options.tokens);
     if (options.config) process.argv.push('--config', options.config);
 
-    // 直接引入编译后的入口文件
-    require(path.join(__dirname, '../dist/index.js'));
+    // 运行主程序
+    await run();
   });
 
 program.parse();

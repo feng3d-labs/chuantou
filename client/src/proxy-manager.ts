@@ -1,7 +1,7 @@
-import { Controller } from './controller';
+import { Controller } from './controller.js';
 import { ProxyConfig } from '@feng3d/zhuanfa-shared';
-import { HttpHandler } from './handlers/http-handler';
-import { WsHandler } from './handlers/ws-handler';
+import { HttpHandler } from './handlers/http-handler.js';
+import { WsHandler } from './handlers/ws-handler.js';
 import { MessageType, createMessage, RegisterMessage, UnregisterMessage, RegisterRespMessage } from '@feng3d/zhuanfa-shared';
 
 /**

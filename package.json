@@ -14,12 +14,15 @@
     "start:client": "npm run start --workspace=client",
     "dev:server": "npm run dev --workspace=server",
     "dev:client": "npm run dev --workspace=client",
-    "build": "npm run build --workspaces && node scripts/post-build.js transform",
-    "build:dev": "npm run build --workspaces",
+    "build": "npm run build --workspaces",
+    "watch": "npm run build && npm run watch --workspaces",
+    "watch:shared": "npm run watch --workspace=shared",
+    "watch:client": "npm run watch --workspace=client",
+    "watch:server": "npm run watch --workspace=server",
     "publish:all": "node scripts/publish-all.js",
     "publish:dry": "node scripts/publish-all.js --dry-run",
     "version": "node scripts/set-version.js",
-    "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules"
+    "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules shared/dist client/dist server/dist"
   },
   "keywords": [
     "proxy",

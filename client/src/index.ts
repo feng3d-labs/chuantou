@@ -1,15 +1,15 @@
-import { Config } from './config';
-import { Controller } from './controller';
-import { ProxyManager } from './proxy-manager';
+import { Config } from './config.js';
+import { Controller } from './controller.js';
+import { ProxyManager } from './proxy-manager.js';
 
 /**
  * 导出核心类，供作为库使用时引用
  */
-export { Config } from './config';
-export { Controller } from './controller';
-export { ProxyManager } from './proxy-manager';
-export { HttpHandler } from './handlers/http-handler';
-export { WsHandler } from './handlers/ws-handler';
+export { Config } from './config.js';
+export { Controller } from './controller.js';
+export { ProxyManager } from './proxy-manager.js';
+export { HttpHandler } from './handlers/http-handler.js';
+export { WsHandler } from './handlers/ws-handler.js';
 export type { ClientConfig, ProxyConfig } from '@feng3d/zhuanfa-shared';
 
 /**
@@ -91,9 +91,18 @@ async function main(): Promise<void> {
 }
 
 // 检查是否作为主模块运行
-if (require.main === module) {
+const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+
+if (isMainModule) {
   main().catch((error) => {
     console.error('Failed to start client:', error);
     process.exit(1);
   });
+}
+
+/**
+ * 导出运行函数供 CLI 使用
+ */
+export async function run(): Promise<void> {
+  return main();
 }

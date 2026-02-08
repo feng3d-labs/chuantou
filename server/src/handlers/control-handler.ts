@@ -11,10 +11,10 @@ import {
   ErrorCode,
   ProtocolError,
 } from '@feng3d/zhuanfa-shared';
-import { SessionManager } from '../session-manager';
-import { Config } from '../config';
-import { HttpProxyHandler } from './http-proxy';
-import { WsProxyHandler } from './ws-proxy';
+import { SessionManager } from '../session-manager.js';
+import { Config } from '../config.js';
+import { HttpProxyHandler } from './http-proxy.js';
+import { WsProxyHandler } from './ws-proxy.js';
 
 /**
  * 控制通道处理器 - 处理客户端的控制消息
