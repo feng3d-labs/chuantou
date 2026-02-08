@@ -13,9 +13,13 @@
  *   node scripts/publish-all.js --tag beta # 发布到 beta 标签
  */
 
-const fs = require('fs');
-const path = require('path');
-const { spawn } = require('child_process');
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const packages = [
   { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'shared') },
