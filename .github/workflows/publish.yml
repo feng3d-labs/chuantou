@@ -7,10 +7,10 @@ on:
 
 jobs:
   check-version:
-    name: Check if version changed
+    name: Check if version needs publishing
     runs-on: ubuntu-latest
     outputs:
-      version-changed: ${{ steps.check.outputs.changed }}
+      should-publish: ${{ steps.check.outputs.should_publish }}
       new-version: ${{ steps.check.outputs.version }}
     steps:
       - name: Checkout code
@@ -18,34 +18,37 @@ jobs:
         with:
           fetch-depth: 2
 
-      - name: Check for version changes
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Check version and npm availability
         id: check
         run: |
-          # 获取当前提交的版本号
+          # 获取当前版本号
           CURRENT_VERSION=$(node -p "require('./package.json').version")
+          echo "Current version: $CURRENT_VERSION"
 
-          # 获取上一次提交的版本号
-          git checkout HEAD~1 -- package.json shared/package.json client/package.json server/package.json
-          PREV_VERSION=$(node -p "require('./package.json').version")
+          # 检查 npm 上是否已存在该版本
+          echo "Checking npm for @feng3d/chuantou@$CURRENT_VERSION..."
+          NPM_STATUS=$(npm view @feng3d/chuantou@$CURRENT_VERSION 2>&1 || echo "NOT_FOUND")
 
-          # 恢复当前版本的 package.json
-          git checkout HEAD -- package.json shared/package.json client/package.json server/package.json
-
-          # 比较版本号
-          if [ "$CURRENT_VERSION" != "$PREV_VERSION" ]; then
-            echo "changed=true" >> $GITHUB_OUTPUT
+          if echo "$NPM_STATUS" | grep -q "NOT_FOUND"; then
+            echo "Version $CURRENT_VERSION not found on npm, will publish"
+            echo "should_publish=true" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            echo "Version changed from $PREV_VERSION to $CURRENT_VERSION"
           else
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "Version $CURRENT_VERSION already exists on npm, skipping"
+            echo "should_publish=false" >> $GITHUB_OUTPUT
             echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
-            echo "Version unchanged: $CURRENT_VERSION"
           fi
 
   publish:
     name: Publish packages to npm
     needs: check-version
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: needs.check-version.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -78,7 +81,7 @@ jobs:
   create-release:
     name: Create GitHub Release
     needs: [check-version, publish]
-    if: needs.check-version.outputs.version-changed == 'true'
+    if: needs.check-version.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: write
