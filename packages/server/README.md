@@ -12,16 +12,39 @@
 - 多客户端支持
 - Token 认证
 - TLS 加密支持
+- 开机自启动
+- Web 状态监控
 
 ## 快速开始
 
 推荐使用 `npx` 直接运行，无需全局安装：
 
 ```bash
-# 启动服务器（默认配置）
+# 启动服务器
+npx @feng3d/cts start -p 9000 -t "my-token"
+
+# 查询状态
+npx @feng3d/cts status
+
+# 停止服务器
+npx @feng3d/cts stop
+```
+
+## 命令说明
+
+### `start` - 启动服务器
+
+```bash
+npx @feng3d/cts start [选项]
+```
+
+**常用示例：**
+
+```bash
+# 默认配置启动
 npx @feng3d/cts start
 
-# 单个 token
+# 指定端口和 token
 npx @feng3d/cts start -p 9000 -t "my-token"
 
 # 多个 token（逗号分隔）
@@ -30,23 +53,14 @@ npx @feng3d/cts start -p 9000 -t "token1,token2,token3"
 # 完整参数示例
 npx @feng3d/cts start -p 9000 -a 0.0.0.0 -t "my-token" --heartbeat-interval 30000 --session-timeout 60000
 
-# 启动服务器并在浏览器中打开状态页面
+# 启动后打开浏览器监控页面
 npx @feng3d/cts start -p 9000 -t "my-token" --open
 
-# 查询服务器状态
-npx @feng3d/cts status
-
-# 停止服务器
-npx @feng3d/cts stop
+# 不注册开机自启动
+npx @feng3d/cts start --no-boot
 ```
 
-## 命令行参数
-
-### `start` - 启动服务器
-
-```bash
-npx @feng3d/cts start [选项]
-```
+**参数说明：**
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
@@ -66,11 +80,27 @@ npx @feng3d/cts start [选项]
 npx @feng3d/cts status
 ```
 
+**输出示例：**
+
+```
+穿透服务器状态
+  运行中: 是
+  主机: 0.0.0.0:9000
+  TLS: 已禁用
+  运行时长: 3600秒
+  客户端: 2
+  端口: 4
+  连接数: 12
+  开机自启: 已注册
+```
+
 ### `stop` - 停止服务器
 
 ```bash
 npx @feng3d/cts stop
 ```
+
+停止服务器并取消开机自启动。
 
 ## Web 状态监控
 
