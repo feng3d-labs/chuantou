@@ -23,18 +23,9 @@ import { MessageType, ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared'
 // 创建代理配置
 const proxyConfig: ProxyConfig = {
   remotePort: 8080,
-  protocol: 'http',
   localPort: 3000,
   localHost: 'localhost'
 };
-
-// 创建消息
-const message = createMessage(MessageType.REGISTER, {
-  remotePort: 8080,
-  protocol: 'http',
-  localPort: 3000,
-  localHost: 'localhost'
-});
 ```
 
 ## 类型
@@ -46,11 +37,14 @@ const message = createMessage(MessageType.REGISTER, {
 ```typescript
 interface ProxyConfig {
   remotePort: number;      // 公网端口
-  protocol: 'http' | 'websocket';  // 协议类型
   localPort: number;       // 本地端口
-  localHost?: string;      // 本地地址
+  localHost?: string;      // 本地地址（默认：localhost）
 }
 ```
+
+**推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
+
+每个代理端口同时支持 HTTP 和 WebSocket 协议，无需单独指定协议类型。
 
 ### ClientConfig
 

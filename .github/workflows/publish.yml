@@ -31,19 +31,28 @@ jobs:
           CURRENT_VERSION=$(node -p "require('./package.json').version")
           echo "Current version: $CURRENT_VERSION"
 
-          # 检查 npm 上是否已存在该版本
-          echo "Checking npm for @feng3d/chuantou@$CURRENT_VERSION..."
-          NPM_STATUS=$(npm view @feng3d/chuantou@$CURRENT_VERSION 2>&1 || echo "NOT_FOUND")
+          # 检查任一子包在 npm 上是否已存在该版本
+          # 如果任一子包不存在该版本，则需要发布所有包（保持版本同步）
+          NEEDS_PUBLISH=false
 
-          if echo "$NPM_STATUS" | grep -q "NOT_FOUND"; then
-            echo "Version $CURRENT_VERSION not found on npm, will publish"
+          for pkg in "@feng3d/chuantou-shared" "@feng3d/ctc" "@feng3d/cts"; do
+            echo "Checking npm for ${pkg}@${CURRENT_VERSION}..."
+            NPM_STATUS=$(npm view ${pkg}@${CURRENT_VERSION} 2>&1 || echo "NOT_FOUND")
+
+            if echo "$NPM_STATUS" | grep -q "NOT_FOUND"; then
+              echo "Version $CURRENT_VERSION not found on npm for $pkg, will publish"
+              NEEDS_PUBLISH=true
+              break
+            fi
+          done
+
+          if [ "$NEEDS_PUBLISH" = true ]; then
             echo "should_publish=true" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           else
-            echo "Version $CURRENT_VERSION already exists on npm, skipping"
+            echo "All packages version $CURRENT_VERSION already exist on npm, skipping"
             echo "should_publish=false" >> $GITHUB_OUTPUT
-            echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
           fi
+          echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
   publish:
     name: Publish packages to npm
@@ -62,13 +71,10 @@ jobs:
             npm-name: "@feng3d/chuantou-shared"
           - name: client
             path: ./packages/client
-            npm-name: "@feng3d/chuantou-client"
+            npm-name: "@feng3d/ctc"
           - name: server
             path: ./packages/server
-            npm-name: "@feng3d/chuantou-server"
-          - name: chuantou
-            path: ./
-            npm-name: "@feng3d/chuantou"
+            npm-name: "@feng3d/cts"
 
     steps:
       - name: Checkout code
@@ -146,25 +152,28 @@ jobs:
 
             ## 发布包
 
-            - @feng3d/chuantou@${{ needs.check-version.outputs.new-version }} (包含 Claude Code Skill)
             - @feng3d/chuantou-shared@${{ needs.check-version.outputs.new-version }}
-            - @feng3d/chuantou-client@${{ needs.check-version.outputs.new-version }}
-            - @feng3d/chuantou-server@${{ needs.check-version.outputs.new-version }}
+            - @feng3d/ctc@${{ needs.check-version.outputs.new-version }} (客户端)
+            - @feng3d/cts@${{ needs.check-version.outputs.new-version }} (服务端)
 
-            ## 安装 Skill
+            ## 安装 CLI
 
             ```bash
-            npx skills add @feng3d/chuantou
+            # 服务端
+            npm install -g @feng3d/cts
+
+            # 客户端
+            npm install -g @feng3d/ctc
             ```
 
             ## 使用命令
 
             ```bash
             # 服务端
-            npx @feng3d/chuantou-server
+            npx @feng3d/cts
 
             # 客户端
-            npx @feng3d/chuantou-client
+            npx @feng3d/ctc
             ```
           draft: false
           prerelease: false

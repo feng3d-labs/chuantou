@@ -1,66 +1,52 @@
-import { Config } from './config.js';
-import { ForwardServer } from './server.js';
-
 /**
- * 导出核心类，供作为库使用时引用
+ * @module index
+ * @description 穿透服务端公共 API 入口模块。
+ * 提供便捷的 start、status、stop 函数，以及核心类和类型的导出。
+ * 外部使用者可直接通过此模块快速启动、查询和停止转发服务器。
  */
-export { Config } from './config.js';
+
+import { ServerConfig } from '@feng3d/chuantou-shared';
+import { ForwardServer, ServerStatus } from './server.js';
+
 export { ForwardServer } from './server.js';
+export type { ServerStatus } from './server.js';
 export { SessionManager } from './session-manager.js';
 export type { ServerConfig } from '@feng3d/chuantou-shared';
 
 /**
- * 主入口（独立运行模式）
+ * 启动转发服务器
+ *
+ * 创建一个 {@link ForwardServer} 实例并启动，是最常用的快捷启动方式。
+ *
+ * @param options - 可选的服务器配置项，未提供的字段将使用默认值
+ * @returns 已启动的 {@link ForwardServer} 实例
  */
-async function main(): Promise<void> {
-  console.log('Starting Chuantou Server...');
-
-  // 加载配置（从用户目录 .chuantou/server.json 或命令行参数）
-  const config = await Config.load();
-
-  // 验证配置
-  config.validate();
-
-  console.log('Configuration loaded:');
-  console.log(`  Control port: ${config.controlPort}`);
-  console.log(`  Auth tokens: ${config.authTokens.length} configured`);
-  console.log(`  Heartbeat interval: ${config.heartbeatInterval}ms`);
-  console.log(`  Session timeout: ${config.sessionTimeout}ms`);
-
-  // 创建并启动服务器
-  const server = new ForwardServer(config);
-
-  // 优雅关闭
-  process.on('SIGINT', async () => {
-    console.log('\nReceived SIGINT, shutting down gracefully...');
-    await server.stop();
-    process.exit(0);
-  });
-
-  process.on('SIGTERM', async () => {
-    console.log('\nReceived SIGTERM, shutting down gracefully...');
-    await server.stop();
-    process.exit(0);
-  });
-
-  // 启动服务器
+export async function start(options: Partial<ServerConfig> = {}): Promise<ForwardServer> {
+  const server = new ForwardServer(options);
   await server.start();
-  console.log('Server started successfully');
-}
-
-// 检查是否作为主模块运行
-const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
-
-if (isMainModule) {
-  main().catch((error) => {
-    console.error('Failed to start server:', error);
-    process.exit(1);
-  });
+  return server;
 }
 
 /**
- * 导出运行函数供 CLI 使用
+ * 查询服务器状态
+ *
+ * 获取指定转发服务器的当前运行状态信息。
+ *
+ * @param server - 需要查询状态的 {@link ForwardServer} 实例
+ * @returns 包含服务器运行状态的 {@link ServerStatus} 对象
  */
-export async function run(): Promise<void> {
-  return main();
+export function status(server: ForwardServer): ServerStatus {
+  return server.getStatus();
+}
+
+/**
+ * 停止服务器
+ *
+ * 优雅地停止指定的转发服务器，释放所有资源。
+ *
+ * @param server - 需要停止的 {@link ForwardServer} 实例
+ * @returns 服务器完全停止后的 Promise
+ */
+export async function stop(server: ForwardServer): Promise<void> {
+  await server.stop();
 }
