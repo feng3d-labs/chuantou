@@ -142,12 +142,14 @@ npx @feng3d/ctc start --open
 ## 代理配置格式
 
 ```
-remotePort:localPort:localHost
+remotePort:localPort[:localHost]
 ```
 
 - `remotePort` - 公网端口
 - `localPort` - 本地端口
-- `localHost` - 本地地址（可选，默认 localhost）
+- `localHost` - 本地地址（可选，默认：localhost）
+
+**推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
 
 每个代理端口同时支持 HTTP 和 WebSocket 协议。
 
@@ -171,9 +173,9 @@ remotePort:localPort:localHost
 
 ```typescript
 import { Controller, ProxyManager } from '@feng3d/ctc';
-import { Config } from '@feng3d/ctc';
+import type { Config } from '@feng3d/chuantou-shared';
 
-const config = {
+const config: Config = {
   serverUrl: 'ws://your-server.com:9000',
   token: 'my-token',
   reconnectInterval: 5000,
@@ -185,8 +187,6 @@ const config = {
 };
 
 const controller = new Controller(config);
-const proxyManager = new ProxyManager(controller);
-
 await controller.connect();
 ```
 

@@ -12,17 +12,9 @@
 - TLS 加密支持
 - Web 管理页面
 
-## 安装
+## 快速开始
 
-### 方式一：Claude Code Skills（推荐）
-
-```bash
-npx skills add feng3d-labs/chuantou
-```
-
-安装后可在对话中直接使用，如："启动穿透服务端"或"使用穿透客户端连接到服务器"。
-
-### 方式二：npx 直接运行
+### 方式一：npx 直接运行
 
 ```bash
 # 服务端
@@ -32,7 +24,7 @@ npx @feng3d/cts start -p 9000 -t mytoken
 npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "8080:3000:localhost"
 ```
 
-### 方式三：全局安装
+### 方式二：全局安装
 
 ```bash
 npm install -g @feng3d/cts @feng3d/ctc
@@ -115,6 +107,51 @@ http://127.0.0.1:9001/
 - 查看已注册的代理映射
 - 动态添加/删除代理映射
 
+## 命令说明
+
+### 服务端命令
+
+```bash
+# 启动服务器
+npx @feng3d/cts start [选项]
+
+# 查询状态
+npx @feng3d/cts status
+
+# 停止服务器
+npx @feng3d/cts stop
+```
+
+### 客户端命令
+
+```bash
+# 启动客户端
+npx @feng3d/ctc start [选项]
+
+# 查询状态
+npx @feng3d/ctc status
+
+# 列出代理映射
+npx @feng3d/ctc list
+
+# 停止客户端
+npx @feng3d/ctc stop
+```
+
+## 代理配置格式
+
+```
+remotePort:localPort[:localHost]
+```
+
+- `remotePort` - 公网端口
+- `localPort` - 本地端口
+- `localHost` - 本地地址（可选，默认：localhost）
+
+**推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
+
+每个代理端口同时支持 HTTP 和 WebSocket 协议。
+
 ## 示例
 
 ```bash
@@ -124,3 +161,13 @@ npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:3000:loca
 # 多个代理
 npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:3000:localhost,8081:3001,8082:8080"
 ```
+
+## 发布包
+
+- [@feng3d/chuantou-shared](https://www.npmjs.com/package/@feng3d/chuantou-shared) - 共享类型定义
+- [@feng3d/ctc](https://www.npmjs.com/package/@feng3d/ctc) - 客户端
+- [@feng3d/cts](https://www.npmjs.com/package/@feng3d/cts) - 服务端
+
+## License
+
+ISC
