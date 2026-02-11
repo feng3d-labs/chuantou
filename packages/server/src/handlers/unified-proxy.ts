@@ -823,9 +823,12 @@ export class UnifiedProxyHandler {
    */
   handleTcpData(connectionId: string, data: Buffer): void {
     const socket = this.userTcpSockets.get(connectionId);
+    logger.log(`[TCP] handleTcpData called: connectionId=${connectionId}, socket exists=${!!socket}, data length=${data.length}`);
     if (socket && !socket.destroyed) {
       logger.log(`转发 TCP 数据到用户 ${connectionId}: ${data.length} 字节`);
       socket.write(data);
+    } else {
+      logger.warn(`[TCP] socket not found or destroyed for connectionId=${connectionId}`);
     }
   }
 

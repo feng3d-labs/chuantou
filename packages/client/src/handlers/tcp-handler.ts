@@ -10,7 +10,7 @@
 import { EventEmitter } from 'events';
 import { Socket, connect } from 'net';
 import { Controller } from '../controller.js';
-import { ProxyConfig, logger, TcpDataMessage, createMessage, MessageType } from '@feng3d/chuantou-shared';
+import { ProxyConfig, logger, createMessage, MessageType } from '@feng3d/chuantou-shared';
 
 /**
  * TCP 连接处理器类。
@@ -56,9 +56,13 @@ export class TcpHandler extends EventEmitter {
     });
 
     // 监听来自服务器的 TCP 数据消息（通过 controller 事件）
-    this.controller.on('tcpData', (msg: TcpDataMessage) => {
-      this.handleTcpData(msg.payload.connectionId, msg.payload.data);
-      logger.log(`收到 TCP 数据: ${msg.payload.connectionId}, 数据长度: ${msg.payload.data?.length || 0}`);
+    // 注意：服务器发送的是简化格式 { type, connectionId, data }，不是标准的 TcpDataMessage 格式
+    this.controller.on('tcpData', (msg: any) => {
+      // 兼容两种格式：标准格式有 payload，简化格式直接有 connectionId 和 data
+      const connectionId = msg.payload?.connectionId || msg.connectionId;
+      const data = msg.payload?.data || msg.data;
+      this.handleTcpData(connectionId, data);
+      logger.log(`收到 TCP 数据: ${connectionId}, 数据长度: ${data?.length || 0}`);
     });
 
     // 监听连接关闭事件

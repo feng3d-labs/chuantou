@@ -269,6 +269,7 @@ export class Controller extends EventEmitter {
           break;
 
         case MessageType.TCP_DATA:
+        case MessageType.TCP_DATA_RESP:
           this.emit('tcpData', message);
           break;
 

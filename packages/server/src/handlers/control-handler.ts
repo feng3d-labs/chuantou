@@ -165,12 +165,16 @@ export class ControlHandler {
           // 客户端发送的格式: { type: 'connection_data', connectionId, data }
           this.handleClientData(message.connectionId, Buffer.from(message.data, 'base64'));
           break;
-
-        case 'tcp_data':
-        case 'tcp_data_resp':
+        case 'tcp_data': {
           // TCP 数据从客户端发送到服务端
           this.handleTcpData(message.connectionId, Buffer.from(message.data, 'base64'));
           break;
+        }
+        case 'tcp_data_resp': {
+          // TCP 数据从客户端发送到服务端
+          this.handleTcpData(message.connectionId, Buffer.from(message.data, 'base64'));
+          break;
+        }
 
         case MessageType.CONNECTION_CLOSE:
           this.handleClientClose(message.payload.connectionId);
@@ -472,7 +476,8 @@ export class ControlHandler {
    * @param data - 客户端发送的 TCP 数据
    */
   handleTcpData(connectionId: string, data: Buffer): void {
-    this.tcpProxyHandler.handleClientData(connectionId, data);
+    // 由于现在所有协议（包括 TCP）都由 unified-proxy 处理
+    this.proxyHandler.handleTcpData(connectionId, data);
   }
 
   /**
