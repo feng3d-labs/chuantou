@@ -132,13 +132,12 @@ export const DEFAULT_CONFIG = {
 /**
  * 代理配置接口
  *
- * 描述单条代理隧道的配置，指定远程端口到本地端口的映射关系及传输协议。
+ * 描述单条代理隧道的配置，指定远程端口到本地端口的映射关系。
+ * 每个端口同时支持 HTTP 和 WebSocket 协议，无需单独指定。
  */
 export interface ProxyConfig {
   /** 服务端监听的远程端口号，外部用户通过此端口访问代理服务 */
   remotePort: number;
-  /** 代理传输协议类型，支持 HTTP 和 WebSocket */
-  protocol: 'http' | 'websocket';
   /** 本地服务监听的端口号，代理流量将被转发到此端口 */
   localPort: number;
   /** 本地服务的主机地址，默认为 localhost */

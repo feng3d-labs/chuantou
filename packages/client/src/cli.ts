@@ -110,7 +110,7 @@ function openBrowser(url: string): void {
 const serverOptions = [
   ['-s, --server <url>', '服务器地址 (如 ws://localhost:9000)', 'ws://localhost:9000'],
   ['-t, --token <token>', '认证令牌'],
-  ['-p, --proxies <proxies>', '代理配置 (格式: remotePort:protocol:localPort:localHost,...)'],
+  ['-p, --proxies <proxies>', '代理配置 (格式: remotePort:localPort:localHost,...)'],
   ['--reconnect-interval <ms>', '重连间隔（毫秒）', '5000'],
   ['--max-reconnect <number>', '最大重连次数', '10'],
 ] as const;
@@ -145,12 +145,10 @@ startCmd.action(async (options) => {
   if (proxiesStr) {
     for (const p of proxiesStr.split(',')) {
       const parts = p.trim().split(':');
-      const protocol = parts[1] === 'ws' ? 'websocket' : parts[1];
       proxies.push({
         remotePort: parseInt(parts[0], 10),
-        protocol: protocol as 'http' | 'websocket',
-        localPort: parseInt(parts[2], 10),
-        localHost: parts[3] || 'localhost',
+        localPort: parseInt(parts[1], 10),
+        localHost: parts[2] || 'localhost',
       });
     }
   }
@@ -345,7 +343,7 @@ program
       console.log(chalk.blue.bold('当前代理映射:'));
       console.log();
       for (const proxy of proxies) {
-        console.log(chalk.gray(`  ${proxy.protocol} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+        console.log(chalk.gray(`  :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
       }
     } catch (err) {
       console.log(chalk.yellow(`获取代理列表失败: ${err instanceof Error ? err.message : err}`));
@@ -387,7 +385,6 @@ async function addProxyToRunningClient(serverUrl: string, token: string | undefi
           // 认证成功，发送注册代理请求
           const registerMsg = createMessage(MessageType.REGISTER, {
             remotePort: proxy.remotePort,
-            protocol: proxy.protocol,
             localPort: proxy.localPort,
             localHost: proxy.localHost,
           });
@@ -405,7 +402,7 @@ async function addProxyToRunningClient(serverUrl: string, token: string | undefi
               }
 
               if (response.payload.success) {
-                console.log(chalk.green(`代理已添加: ${proxy.protocol} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+                console.log(chalk.green(`代理已添加: :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
                 ws.close();
                 resolve();
               } else {

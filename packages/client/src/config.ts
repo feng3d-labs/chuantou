@@ -35,25 +35,24 @@ function getClientConfigPath(): string {
 /**
  * 解析代理配置字符串为代理配置数组。
  *
- * 字符串格式为逗号分隔的代理项，每项格式为 `remotePort:protocol:localPort[:localHost]`。
+ * 字符串格式为逗号分隔的代理项，每项格式为 `remotePort:localPort[:localHost]`。
+ * 每个端口同时支持 HTTP 和 WebSocket 协议。
  *
  * @example
  * ```
- * parseProxies('8080:http:3000:localhost,8081:ws:3001')
+ * parseProxies('8080:3000:localhost,8081:3001')
  * ```
  *
- * @param proxiesStr - 代理配置字符串，如 `"8080:http:3000:localhost,8081:ws:3001"`
+ * @param proxiesStr - 代理配置字符串，如 `"8080:3000:localhost,8081:3001"`
  * @returns 解析后的代理配置数组
  */
 function parseProxies(proxiesStr: string): ProxyConfig[] {
   return proxiesStr.split(',').map((p: string) => {
     const parts = p.trim().split(':');
-    const protocol = parts[1] === 'ws' ? 'websocket' : parts[1];
     return {
       remotePort: parseInt(parts[0], 10),
-      protocol: protocol as 'http' | 'websocket',
-      localPort: parseInt(parts[2], 10),
-      localHost: parts[3] || 'localhost',
+      localPort: parseInt(parts[1], 10),
+      localHost: parts[2] || 'localhost',
     };
   });
 }
@@ -124,8 +123,8 @@ async function loadConfig(): Promise<ClientConfig> {
     reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
     maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
     proxies: [
-      { remotePort: 8080, protocol: 'http' as const, localPort: 3000, localHost: 'localhost' },
-      { remotePort: 8081, protocol: 'websocket' as const, localPort: 3001, localHost: 'localhost' },
+      { remotePort: 8080, localPort: 3000, localHost: 'localhost' },
+      { remotePort: 8081, localPort: 3001, localHost: 'localhost' },
     ],
   };
 
@@ -203,7 +202,7 @@ export class Config implements ClientConfig {
    * - 服务器地址不为空且以 `ws://` 或 `wss://` 开头
    * - 认证令牌不为空
    * - 至少配置了一个代理
-   * - 每个代理的端口号和协议类型合法
+   * - 每个代理的端口号合法
    *
    * @throws {Error} 当配置项不合法时抛出错误，包含具体的错误描述
    */
@@ -227,9 +226,6 @@ export class Config implements ClientConfig {
       }
       if (!proxy.localPort || proxy.localPort < 1 || proxy.localPort > 65535) {
         throw new Error(`proxy[${i}] 的 localPort 无效: ${proxy.localPort}`);
-      }
-      if (proxy.protocol !== 'http' && proxy.protocol !== 'websocket') {
-        throw new Error(`proxy[${i}] 的 protocol 无效: ${proxy.protocol}`);
       }
     }
   }

@@ -10,8 +10,7 @@ import { createServer as createHttpsServer } from 'https';
 import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
-import { HttpProxyHandler } from './handlers/http-proxy.js';
-import { WsProxyHandler } from './handlers/ws-proxy.js';
+import { UnifiedProxyHandler } from './handlers/unified-proxy.js';
 
 /** 状态页面 HTML 模板 */
 const STATUS_HTML = `<!DOCTYPE html>
@@ -303,10 +302,8 @@ export class ForwardServer {
   private config: ServerConfig;
   /** 会话管理器实例 */
   private sessionManager: SessionManager;
-  /** HTTP 代理处理器 */
-  private httpProxyHandler: HttpProxyHandler;
-  /** WebSocket 代理处理器 */
-  private wsProxyHandler: WsProxyHandler;
+  /** 统一代理处理器（同时支持 HTTP 和 WebSocket） */
+  private proxyHandler: UnifiedProxyHandler;
   /** 控制通道处理器 */
   private controlHandler: ControlHandler;
   /** WebSocket 控制服务器 */
@@ -336,13 +333,11 @@ export class ForwardServer {
       this.config.heartbeatInterval,
       this.config.sessionTimeout
     );
-    this.httpProxyHandler = new HttpProxyHandler(this.sessionManager);
-    this.wsProxyHandler = new WsProxyHandler(this.sessionManager);
+    this.proxyHandler = new UnifiedProxyHandler(this.sessionManager);
     this.controlHandler = new ControlHandler(
       this.sessionManager,
       this.config,
-      this.httpProxyHandler,
-      this.wsProxyHandler
+      this.proxyHandler
     );
     this.controlServer = new WebSocketServer({ noServer: true });
   }
@@ -464,8 +459,7 @@ export class ForwardServer {
       this.httpServer.close();
     }
 
-    await this.httpProxyHandler.stopAll();
-    await this.wsProxyHandler.stopAll();
+    await this.proxyHandler.stopAll();
 
     this.sessionManager.clear();
 

@@ -8,8 +8,7 @@
 
 - WebSocket 控制通道
 - 自动重连机制
-- HTTP/HTTPS 代理
-- WebSocket 代理
+- **每个端口同时支持 HTTP 和 WebSocket 代理**
 - 多代理支持
 - 单实例模式：支持动态添加代理映射
 
@@ -19,7 +18,7 @@
 
 ```bash
 # 启动客户端（连接本地服务器测试）
-npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:http:3000:localhost"
+npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
 
 # 查询状态
 npx @feng3d/ctc status
@@ -44,20 +43,17 @@ npx @feng3d/ctc start [选项]
 **常用示例：**
 
 ```bash
-# 默认配置启动（使用已配置的服务器和代理）
-npx @feng3d/ctc start
-
 # 指定服务器地址和认证令牌
 npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token"
 
 # 添加单个代理映射：远程8080端口代理到本地3000端口
-npx @feng3d/ctc start -p "8080:http:3000:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost"
 
 # 添加多个代理映射
-npx @feng3d/ctc start -p "8080:http:3000:localhost,8081:ws:3001,8082:http:8080"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost,8081:3001,8082:8080"
 
 # 完整参数示例：指定服务器、令牌、代理和重连配置
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:http:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
 ```
 
 **参数说明：**
@@ -66,7 +62,7 @@ npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:http:3
 |------|------|------|--------|
 | `-s, --server <url>` | 服务器地址（必填） | `ws://your-server.com:9000` | - |
 | `-t, --token <token>` | 认证令牌（必填） | `my-token` | - |
-| `-p, --proxies <proxies>` | 代理配置（逗号分隔），格式：`远程端口:协议:本地端口:本地地址` | `8080:http:3000:localhost` | - |
+| `-p, --proxies <proxies>` | 代理配置（逗号分隔），格式：`远程端口:本地端口:本地地址` | `8080:3000:localhost` | - |
 | `--reconnect-interval <ms>` | 重连间隔（毫秒） | `5000` | `5000` |
 | `--max-reconnect <number>` | 最大重连次数 | `10` | `10` |
 | `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
@@ -99,8 +95,8 @@ npx @feng3d/ctc list
 
 ```
 当前代理映射:
-  http :8080 -> localhost:3000
-  websocket :8081 -> localhost:3001
+  :8080 -> localhost:3000
+  :8081 -> localhost:3001
 ```
 
 ### `stop` - 停止客户端
@@ -146,25 +142,29 @@ npx @feng3d/ctc start --open
 ## 代理配置格式
 
 ```
-remotePort:protocol:localPort:localHost
+remotePort:localPort:localHost
 ```
 
 - `remotePort` - 公网端口
-- `protocol` - 协议类型 (`http` 或 `ws`)
 - `localPort` - 本地端口
 - `localHost` - 本地地址（可选，默认 localhost）
+
+每个代理端口同时支持 HTTP 和 WebSocket 协议。
 
 **示例：**
 
 ```
 # HTTP 代理
-8080:http:3000:localhost
+8080:3000:localhost
 
-# WebSocket 代理（localHost 可省略）
-8081:ws:3001
+# WebSocket 代理（同一端口）
+8080:3000:localhost
 
 # 完整格式
-8082:http:8080:192.168.1.100
+8082:8080:192.168.1.100
+
+# 多个代理（逗号分隔）
+8080:3000:localhost,8081:3001,8082:8080
 ```
 
 ## 作为库使用
@@ -179,8 +179,8 @@ const config = {
   reconnectInterval: 5000,
   maxReconnectAttempts: 10,
   proxies: [
-    { remotePort: 8080, protocol: 'http', localPort: 3000, localHost: 'localhost' },
-    { remotePort: 8081, protocol: 'websocket', localPort: 3001, localHost: 'localhost' }
+    { remotePort: 8080, localPort: 3000, localHost: 'localhost' },
+    { remotePort: 8081, localPort: 3001, localHost: 'localhost' }
   ]
 };
 

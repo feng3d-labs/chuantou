@@ -15,8 +15,7 @@ import {
   ServerConfig,
 } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
-import { HttpProxyHandler } from './http-proxy.js';
-import { WsProxyHandler } from './ws-proxy.js';
+import { UnifiedProxyHandler } from './unified-proxy.js';
 
 /**
  * 控制通道处理器
@@ -32,29 +31,24 @@ export class ControlHandler {
   private sessionManager: SessionManager;
   /** 服务器配置 */
   private config: ServerConfig;
-  /** HTTP 代理处理器 */
-  private httpProxyHandler: HttpProxyHandler;
-  /** WebSocket 代理处理器 */
-  private wsProxyHandler: WsProxyHandler;
+  /** 统一代理处理器（同时支持 HTTP 和 WebSocket） */
+  private proxyHandler: UnifiedProxyHandler;
 
   /**
    * 创建控制通道处理器实例
    *
    * @param sessionManager - 会话管理器，用于管理客户端会话
    * @param config - 服务器配置，包含认证令牌等信息
-   * @param httpProxyHandler - HTTP 代理处理器，用于启停 HTTP 代理
-   * @param wsProxyHandler - WebSocket 代理处理器，用于启停 WebSocket 代理
+   * @param proxyHandler - 统一代理处理器，用于启停代理服务器
    */
   constructor(
     sessionManager: SessionManager,
     config: ServerConfig,
-    httpProxyHandler: HttpProxyHandler,
-    wsProxyHandler: WsProxyHandler
+    proxyHandler: UnifiedProxyHandler
   ) {
     this.sessionManager = sessionManager;
     this.config = config;
-    this.httpProxyHandler = httpProxyHandler;
-    this.wsProxyHandler = wsProxyHandler;
+    this.proxyHandler = proxyHandler;
   }
 
   /**
@@ -203,7 +197,8 @@ export class ControlHandler {
    * 处理端口注册消息
    *
    * 验证客户端认证状态和端口范围（1024-65535），检查端口是否已被占用，
-   * 然后注册端口并启动对应协议的代理服务器。若启动失败则自动回滚端口注册。
+   * 然后注册端口并启动代理服务器（同时支持 HTTP 和 WebSocket）。
+   * 若启动失败则自动回滚端口注册。
    *
    * @param clientId - 客户端唯一标识 ID
    * @param socket - 客户端的 WebSocket 连接
@@ -219,7 +214,7 @@ export class ControlHandler {
       return;
     }
 
-    const { remotePort, protocol, localPort, localHost } = message.payload;
+    const { remotePort, localPort, localHost } = message.payload;
 
     // 验证端口
     if (remotePort < 1024 || remotePort > 65535) {
@@ -250,13 +245,9 @@ export class ControlHandler {
       return;
     }
 
-    // 启动对应的代理服务器
+    // 启动代理服务器（同时支持 HTTP 和 WebSocket）
     try {
-      if (protocol === 'http') {
-        await this.httpProxyHandler.startProxy(remotePort, clientId);
-      } else if (protocol === 'websocket') {
-        await this.wsProxyHandler.startProxy(remotePort, clientId);
-      }
+      await this.proxyHandler.startProxy(remotePort, clientId);
 
       this.sendMessage(socket, createMessage(MessageType.REGISTER_RESP, {
         success: true,
@@ -264,7 +255,7 @@ export class ControlHandler {
         remoteUrl: `http://${this.config.host}:${remotePort}`,
       }, message.id));
 
-      console.log(`客户端 ${clientId} 注册了 ${protocol} 代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
+      console.log(`客户端 ${clientId} 注册了代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
     } catch (error) {
       // 启动代理失败，回滚端口注册
       this.sessionManager.unregisterPort(clientId, remotePort);
@@ -279,7 +270,7 @@ export class ControlHandler {
   /**
    * 处理端口注销消息
    *
-   * 验证客户端认证状态和端口归属，停止对应的代理服务器并注销端口。
+   * 验证客户端认证状态和端口归属，停止代理服务器并注销端口。
    *
    * @param clientId - 客户端唯一标识 ID
    * @param socket - 客户端的 WebSocket 连接
@@ -303,8 +294,7 @@ export class ControlHandler {
     }
 
     // 停止代理
-    await this.httpProxyHandler.stopProxy(remotePort);
-    await this.wsProxyHandler.stopProxy(remotePort);
+    await this.proxyHandler.stopProxy(remotePort);
 
     // 注销端口
     const unregistered = this.sessionManager.unregisterPort(clientId, remotePort);
@@ -341,8 +331,7 @@ export class ControlHandler {
     if (clientInfo) {
       // 停止所有代理
       for (const port of clientInfo.registeredPorts) {
-        this.httpProxyHandler.stopProxy(port).catch(console.error);
-        this.wsProxyHandler.stopProxy(port).catch(console.error);
+        this.proxyHandler.stopProxy(port).catch(console.error);
       }
     }
     this.sessionManager.removeSession(clientId);
@@ -375,5 +364,35 @@ export class ControlHandler {
       connectionId: '',
       error,
     }));
+  }
+
+  /**
+   * 处理客户端返回的 HTTP 响应数据
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端返回的 HTTP 响应数据
+   */
+  handleClientResponse(connectionId: string, data: any): void {
+    this.proxyHandler.handleClientResponse(connectionId, data);
+  }
+
+  /**
+   * 处理来自客户端的 WebSocket 数据
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端发送的数据
+   */
+  handleClientData(connectionId: string, data: Buffer): void {
+    this.proxyHandler.handleClientData(connectionId, data);
+  }
+
+  /**
+   * 处理来自客户端的连接关闭请求
+   *
+   * @param connectionId - 需要关闭的连接唯一标识 ID
+   * @param code - 可选的关闭状态码
+   */
+  handleClientClose(connectionId: string, code?: number): void {
+    this.proxyHandler.handleClientClose(connectionId, code);
   }
 }

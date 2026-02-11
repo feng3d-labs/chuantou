@@ -2,6 +2,16 @@
 
 类似于 ngrok/frp 的内网穿透系统，将局域网服务暴露到公网。
 
+## 特性
+
+- **每个端口同时支持 HTTP 和 WebSocket 协议**，无需单独配置
+- WebSocket 控制通道
+- 自动重连机制
+- 单实例模式：支持动态添加代理映射
+- Token 认证
+- TLS 加密支持
+- Web 管理页面
+
 ## 安装
 
 ### 方式一：Claude Code Skills（推荐）
@@ -19,7 +29,7 @@ npx skills add feng3d-labs/chuantou
 npx @feng3d/cts start -p 9000 -t mytoken
 
 # 客户端（连接本地服务器测试）
-npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "8080:http:3000:localhost"
+npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "8080:3000:localhost"
 ```
 
 ### 方式三：全局安装
@@ -58,19 +68,21 @@ npx @feng3d/cts start \
 npx @feng3d/ctc start \
   -s ws://your-server.com:9000 \
   -t "my-token" \
-  -p "8080:http:3000:localhost"
+  -p "8080:3000:localhost"
 ```
 
 选项：
 - `-s, --server <url>` - 服务器地址（必填，如 `ws://your-server.com:9000`）
   - 如果服务端启用了 TLS，使用 `wss://` 协议
 - `-t, --token <token>` - 认证令牌（必填）
-- `-p, --proxies <proxies>` - 代理配置（格式: `remotePort:protocol:localPort:localHost`）
+- `-p, --proxies <proxies>` - 代理配置（格式: `remotePort:localPort:localHost`）
 - `-o, --open` - 启动后在浏览器中打开管理页面
 
 ### 访问服务
 
 启动成功后，访问 `http://your-server.com:8080` 即可访问本地的 3000 端口服务。
+
+同一个端口支持 HTTP 和 WebSocket 连接。
 
 ## 管理页面
 
@@ -106,12 +118,9 @@ http://127.0.0.1:9001/
 ## 示例
 
 ```bash
-# HTTP 代理
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:http:3000:localhost"
-
-# WebSocket 代理
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8081:ws:3001:localhost"
+# 单个代理（同时支持 HTTP 和 WebSocket）
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:3000:localhost"
 
 # 多个代理
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:http:3000:localhost,8081:ws:3001:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:3000:localhost,8081:3001,8082:8080"
 ```

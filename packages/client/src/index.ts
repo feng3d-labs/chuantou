@@ -1,5 +1,5 @@
 /**
- * @module @feng3d/chuantou-client
+ * @module @feng3d/ctc
  *
  * 穿透（Chuantou）内网穿透客户端主入口模块。
  *
@@ -21,8 +21,7 @@ export { Config } from './config.js';
 export { Controller } from './controller.js';
 export { ProxyManager } from './proxy-manager.js';
 export { AdminServer } from './admin-server.js';
-export { HttpHandler } from './handlers/http-handler.js';
-export { WsHandler } from './handlers/ws-handler.js';
+export { UnifiedHandler } from './handlers/unified-handler.js';
 export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
 
 /**
@@ -51,7 +50,7 @@ async function main(): Promise<void> {
   console.log(`  服务器地址: ${config.serverUrl}`);
   console.log(`  代理数量: 已配置 ${config.proxies.length} 个`);
   for (const proxy of config.proxies) {
-    console.log(`    - ${proxy.protocol} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
+    console.log(`    - :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
   }
 
   // 记录启动时间

@@ -143,6 +143,8 @@ npx @feng3d/cts start -t "client1-token,client2-token,client3-token"
 公网用户请求 -> 服务端监听端口 -> WebSocket 控制通道 -> 内网客户端 -> 本地服务
 ```
 
+**每个代理端口同时支持 HTTP 和 WebSocket 协议**，客户端无需指定协议类型。
+
 ## 许可证
 
 ISC

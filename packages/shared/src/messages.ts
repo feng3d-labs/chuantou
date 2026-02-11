@@ -96,6 +96,7 @@ export interface AuthRespMessage extends Message {
  * 注册代理服务消息
  *
  * 客户端向服务端请求注册一条代理隧道，指定远程端口到本地服务的映射。
+ * 每个端口同时支持 HTTP 和 WebSocket 协议。
  */
 export interface RegisterMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.REGISTER} */
@@ -104,8 +105,6 @@ export interface RegisterMessage extends Message {
   payload: {
     /** 请求在服务端监听的远程端口号 */
     remotePort: number;
-    /** 代理使用的传输协议类型 */
-    protocol: Protocol;
     /** 本地服务监听的端口号 */
     localPort: number;
     /** 本地服务的主机地址，默认为 localhost */
