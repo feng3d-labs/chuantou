@@ -3,7 +3,7 @@
 /**
  * @module cli
  * @description 穿透服务端命令行工具模块。
- * 提供 `chuantou-server` CLI 命令，支持通过命令行启动、停止和查询转发服务器状态。
+ * 提供 `feng3d-cts` CLI 命令，支持通过命令行启动、停止和查询转发服务器状态。
  * 使用 PID 文件跟踪运行中的服务器实例，以实现跨进程的状态管理。
  */
 
@@ -133,7 +133,7 @@ function httpPost(host: string, port: number, path: string, tls: boolean): Promi
 const program = new Command();
 
 program
-  .name('chuantou-server')
+  .name('feng3d-cts')
   .description(chalk.blue('穿透 - 内网穿透服务端'))
   .version('0.0.5');
 

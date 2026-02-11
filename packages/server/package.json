@@ -1,11 +1,11 @@
 {
-  "name": "@feng3d/chuantou-server",
+  "name": "@feng3d/cts",
   "version": "0.0.5",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "chuantou-server": "./dist/cli.js"
+    "feng3d-cts": "./dist/cli.js"
   },
   "exports": {
     ".": {

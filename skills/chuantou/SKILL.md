@@ -11,7 +11,7 @@ description: Internal network tunneling system like ngrok or frp for exposing lo
 
 启动服务端：
 ```bash
-npx @feng3d/chuantou-server -p 9000 -t "my-token"
+npx @feng3d/cts -p 9000 -t "my-token"
 ```
 
 启动客户端：
@@ -33,7 +33,7 @@ npx @feng3d/chuantou-client -s ws://server:9000 -t "my-token" -p "8080:http:3000
 ### 启动服务端
 
 ```bash
-npx @feng3d/chuantou-server [选项]
+npx @feng3d/cts [选项]
 ```
 
 选项：
@@ -68,7 +68,7 @@ npx @feng3d/chuantou-client [选项]
 启用 TLS 加密隧道，在服务端配置：
 
 ```bash
-npx @feng3d/chuantou-server --tls-key /path/to/key.pem --tls-cert /path/to/cert.pem
+npx @feng3d/cts --tls-key /path/to/key.pem --tls-cert /path/to/cert.pem
 ```
 
 客户端需使用 `wss://` 协议：
@@ -83,7 +83,7 @@ npx @feng3d/chuantou-client -s wss://server:9000 ...
 - `server.json` - 服务端配置（端口、令牌）
 - `client.json` - 客户端配置（服务器地址、令牌、代理）
 
-加载配置：`npx @feng3d/chuantou-server -c ~/.chuantou/server.json`
+加载配置：`npx @feng3d/cts -c ~/.chuantou/server.json`
 
 ## 使用示例
 
@@ -93,7 +93,7 @@ npx @feng3d/chuantou-client -s wss://server:9000 ...
 
 ```bash
 # 服务端（有公网 IP 的机器）
-npx @feng3d/chuantou-server -p 9000 -t "dev-token"
+npx @feng3d/cts -p 9000 -t "dev-token"
 
 # 客户端（本地开发机器）
 npx @feng3d/chuantou-client -s ws://服务器IP:9000 -t "dev-token" -p "8080:http:5173:localhost"
@@ -132,7 +132,7 @@ npx @feng3d/chuantou-client \
 
 ```bash
 # 服务端（需要域名和证书）
-npx @feng3d/chuantou-server \
+npx @feng3d/cts \
   --tls-key /etc/ssl/private/key.pem \
   --tls-cert /etc/ssl/certs/cert.pem \
   -t "prod-token"
@@ -150,7 +150,7 @@ npx @feng3d/chuantou-client \
 
 2. **启动服务端**：
 ```bash
-npx @feng3d/chuantou-server -p 9000 -t "my-secret-token"
+npx @feng3d/cts -p 9000 -t "my-secret-token"
 # 输出会显示生成的令牌（如未指定）
 ```
 

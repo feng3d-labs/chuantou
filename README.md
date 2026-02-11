@@ -16,7 +16,7 @@ npx skills add feng3d-labs/chuantou
 
 ```bash
 # 服务端
-npx @feng3d/chuantou-server -p 9000 -t mytoken
+npx @feng3d/cts -p 9000 -t mytoken
 
 # 客户端
 npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:3000:localhost"
@@ -25,7 +25,7 @@ npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:
 ### 方式三：全局安装
 
 ```bash
-npm install -g @feng3d/chuantou-server @feng3d/chuantou-client
+npm install -g @feng3d/cts @feng3d/chuantou-client
 ```
 
 ## 使用
@@ -33,7 +33,7 @@ npm install -g @feng3d/chuantou-server @feng3d/chuantou-client
 ### 启动服务端
 
 ```bash
-npx @feng3d/chuantou-server -p 9000 -t "my-token"
+npx @feng3d/cts -p 9000 -t "my-token"
 ```
 
 选项：
@@ -46,7 +46,7 @@ npx @feng3d/chuantou-server -p 9000 -t "my-token"
 ### 启动服务端（启用 TLS）
 
 ```bash
-npx @feng3d/chuantou-server \
+npx @feng3d/cts \
   --tls-key /path/to/key.pem \
   --tls-cert /path/to/cert.pem
 ```
@@ -106,4 +106,4 @@ npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:
 }
 ```
 
-使用配置文件：`npx @feng3d/chuantou-server -c ~/.chuantou/server.json`
+使用配置文件：`npx @feng3d/cts -c ~/.chuantou/server.json`
