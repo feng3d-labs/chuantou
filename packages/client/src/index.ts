@@ -13,6 +13,9 @@ import { Controller } from './controller.js';
 import { ProxyManager } from './proxy-manager.js';
 import { AdminServer, ClientStatus } from './admin-server.js';
 import { ProxyConfig, logger } from '@feng3d/chuantou-shared';
+import { existsSync, readFileSync, mkdirSync, writeFileSync, readdirSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -132,8 +135,57 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
+  // 设置 IPC 请求监听（用于处理 CLI 添加代理的请求）
+  const requestDir = join(homedir(), '.chuantou', 'proxy-requests');
+  mkdirSync(requestDir, { recursive: true });
+
+  // 处理添加代理请求的函数
+  const handleAddProxyRequest = async (requestFilePath: string) => {
+    try {
+      const requestData = JSON.parse(readFileSync(requestFilePath, 'utf-8'));
+      if (requestData.type !== 'add-proxy') return;
+
+      const proxy: ProxyConfig = requestData.proxy;
+      const responsePath = requestFilePath.replace('.json', '.resp');
+
+      logger.log(`收到添加代理请求: :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
+
+      try {
+        await proxyManager.registerProxy(proxy);
+        registeredProxies.push({ ...proxy });
+
+        // 写入成功响应
+        writeFileSync(responsePath, JSON.stringify({ success: true }));
+        logger.log(`代理已通过 IPC 添加: :${proxy.remotePort}`);
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`通过 IPC 添加代理失败: ${errorMessage}`);
+        // 写入失败响应
+        writeFileSync(responsePath, JSON.stringify({ success: false, error: errorMessage }));
+      }
+    } catch (error) {
+      logger.error('处理添加代理请求时出错:', error);
+    }
+  };
+
+  // 定期检查新的请求文件
+  const requestChecker = setInterval(() => {
+    try {
+      const files = readdirSync(requestDir);
+      for (const file of files) {
+        if (file.endsWith('.json') && !file.endsWith('.resp')) {
+          const requestPath = join(requestDir, file);
+          handleAddProxyRequest(requestPath);
+        }
+      }
+    } catch (error) {
+      // 忽略错误
+    }
+  }, 500); // 每 500ms 检查一次
+
   // 优雅关闭
   const shutdown = async () => {
+    clearInterval(requestChecker);
     logger.log('\n正在关闭...');
     await adminServer.stop();
     await proxyManager.destroy();
