@@ -47,6 +47,13 @@ export class UnifiedProxyHandler {
   private userConnections: Map<string, WebSocket> = new Map();
 
   /**
+   * 流式 HTTP 响应映射表
+   *
+   * 存储正在进行的流式响应（如 SSE）的响应对象。
+   */
+  private streamingResponses: Map<string, ServerResponse> = new Map();
+
+  /**
    * 创建统一代理处理器实例
    *
    * @param sessionManager - 会话管理器，用于获取客户端连接和管理连接记录
@@ -110,6 +117,7 @@ export class UnifiedProxyHandler {
    * 处理外部 HTTP 请求
    *
    * 将外部 HTTP 请求封装为消息发送给穿透客户端，等待客户端处理后返回响应。
+   * 支持流式响应（如 SSE）和普通 HTTP 响应。
    *
    * @param clientId - 处理该请求的客户端唯一标识 ID
    * @param req - 收到的 HTTP 请求对象
@@ -157,31 +165,61 @@ export class UnifiedProxyHandler {
 
       clientSocket.send(JSON.stringify(newConnMsg));
 
-      // 等待客户端响应
-      const response = await this.waitForResponse(connectionId, clientId);
+      // 等待客户端响应头（第一个消息）
+      const firstResponse = await this.waitForResponse(connectionId, clientId);
 
-      // 发送响应给用户
-      res.writeHead(response.statusCode, response.headers);
-      if (response.body) {
-        const bodyBuffer = Buffer.isBuffer(response.body)
-          ? response.body
-          : Buffer.from(response.body, 'base64');
-        res.end(bodyBuffer);
+      // 检查是否为流式响应（仅根据 Content-Type 判断）
+      const contentType = String(firstResponse.headers['content-type'] || '').toLowerCase();
+      const isStreaming = contentType.includes('text/event-stream') ||
+                         contentType.includes('stream');
+
+      if (isStreaming) {
+        // 流式响应模式（SSE）
+        logger.log(`HTTP 流式响应: ${req.url} (${connectionId})`);
+        this.streamingResponses.set(connectionId, res);
+
+        // 发送响应头
+        res.writeHead(firstResponse.statusCode, firstResponse.headers);
+        res.flushHeaders();
+
+        // 如果有初始 body，先发送
+        if (firstResponse.body) {
+          const bodyBuffer = Buffer.isBuffer(firstResponse.body)
+            ? firstResponse.body
+            : Buffer.from(firstResponse.body, 'base64');
+          res.write(bodyBuffer);
+        }
+
+        // 等待流结束，不清理连接（由流结束事件处理）
+        this.pendingResponses.delete(connectionId);
       } else {
-        res.end();
-      }
+        // 普通 HTTP 响应模式
+        res.writeHead(firstResponse.statusCode, firstResponse.headers);
+        if (firstResponse.body) {
+          const bodyBuffer = Buffer.isBuffer(firstResponse.body)
+            ? firstResponse.body
+            : Buffer.from(firstResponse.body, 'base64');
+          res.end(bodyBuffer);
+        } else {
+          res.end();
+        }
 
-      logger.log(`HTTP 响应: ${response.statusCode}，连接 ${connectionId}`);
+        logger.log(`HTTP 响应: ${firstResponse.statusCode}，连接 ${connectionId}`);
+
+        // 清理连接
+        this.sessionManager.removeConnection(connectionId);
+        this.pendingResponses.delete(connectionId);
+      }
     } catch (error) {
       logger.error(`处理 HTTP 请求 ${connectionId} 时出错:`, error);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('服务器内部错误');
       }
-    } finally {
       // 清理连接
       this.sessionManager.removeConnection(connectionId);
       this.pendingResponses.delete(connectionId);
+      this.streamingResponses.delete(connectionId);
     }
   }
 
@@ -423,7 +461,39 @@ export class UnifiedProxyHandler {
    */
   private cleanupConnection(connectionId: string): void {
     this.userConnections.delete(connectionId);
+    this.streamingResponses.delete(connectionId);
     this.sessionManager.removeConnection(connectionId);
+  }
+
+  /**
+   * 处理来自客户端的流式响应数据
+   *
+   * 将客户端发送的流式数据（如 SSE 事件）转发给对应的外部 HTTP 连接。
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端发送的流式数据
+   */
+  handleClientStreamData(connectionId: string, data: Buffer): void {
+    const res = this.streamingResponses.get(connectionId);
+    if (res && !res.writableEnded) {
+      res.write(data);
+    }
+  }
+
+  /**
+   * 处理来自客户端的流式响应结束通知
+   *
+   * 当客户端通知流式响应结束时，关闭外部 HTTP 连接并清理资源。
+   *
+   * @param connectionId - 连接唯一标识 ID
+   */
+  handleClientStreamEnd(connectionId: string): void {
+    const res = this.streamingResponses.get(connectionId);
+    if (res && !res.writableEnded) {
+      res.end();
+    }
+    logger.log(`流式响应结束: ${connectionId}`);
+    this.cleanupConnection(connectionId);
   }
 
   /**

@@ -54,6 +54,9 @@ export class UnifiedHandler extends EventEmitter {
   /** 本地 WebSocket 连接映射表 */
   private localWsConnections: Map<string, WebSocket> = new Map();
 
+  /** 流式 HTTP 响应映射表（如 SSE） */
+  private streamingResponses: Map<string, any> = new Map();
+
   /**
    * 创建统一处理器实例。
    *
@@ -132,25 +135,53 @@ export class UnifiedHandler extends EventEmitter {
 
     try {
       const req = requestFn(options, (res) => {
-        const response: HttpResponseData = {
-          statusCode: res.statusCode || 200,
-          headers: res.headers as Record<string, string>,
-        };
+        const contentType = (res.headers['content-type'] || '').toLowerCase();
+        const isSSE = contentType.includes('text/event-stream');
 
-        // 收集响应体
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => {
-          chunks.push(chunk);
-        });
+        if (isSSE) {
+          // SSE 流式转发 - 先发送响应头
+          logger.log(`SSE 流: ${url} (${connectionId})`);
+          this.sendResponseHeaders(connectionId, {
+            statusCode: res.statusCode || 200,
+            headers: res.headers as Record<string, string>,
+          });
+          this.streamingResponses.set(connectionId, res);
 
-        res.on('end', () => {
-          response.body = Buffer.concat(chunks).toString('base64');
-          this.sendResponse(connectionId, response);
-        });
+          res.on('data', (chunk: Buffer) => {
+            this.forwardStreamData(connectionId, chunk);
+          });
 
-        res.on('error', (error) => {
-          this.sendError(connectionId, error.message);
-        });
+          res.on('end', () => {
+            logger.log(`SSE 结束: ${connectionId}`);
+            this.notifyStreamEnd(connectionId);
+            this.streamingResponses.delete(connectionId);
+          });
+
+          res.on('error', (error) => {
+            logger.error(`SSE 错误 ${connectionId}:`, error.message);
+            this.notifyStreamEnd(connectionId);
+            this.streamingResponses.delete(connectionId);
+          });
+        } else {
+          // 普通 HTTP 请求，收集完整响应体后一次性发送
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => {
+            chunks.push(chunk);
+          });
+
+          res.on('end', () => {
+            const body = Buffer.concat(chunks);
+            this.sendResponse(connectionId, {
+              statusCode: res.statusCode || 200,
+              headers: res.headers as Record<string, string>,
+              body: body.toString('base64'),
+            });
+          });
+
+          res.on('error', (error) => {
+            this.sendError(connectionId, error.message);
+          });
+        }
       });
 
       req.on('error', (error) => {
@@ -251,6 +282,48 @@ export class UnifiedHandler extends EventEmitter {
   }
 
   /**
+   * 发送流式响应头（用于 SSE）。
+   */
+  private sendResponseHeaders(connectionId: string, headers: { statusCode: number; headers: Record<string, string> }): void {
+    const controller = this.controller as any;
+    if (controller.ws && controller.ws.readyState === WebSocket.OPEN) {
+      controller.ws.send(JSON.stringify({
+        type: 'http_response_headers',
+        connectionId,
+        ...headers,
+      }));
+    }
+  }
+
+  /**
+   * 发送流式响应数据块（用于 SSE）。
+   */
+  private forwardStreamData(connectionId: string, data: Buffer): void {
+    const controller = this.controller as any;
+    if (controller.ws && controller.ws.readyState === WebSocket.OPEN) {
+      controller.ws.send(JSON.stringify({
+        type: 'http_response_data',
+        connectionId,
+        data: data.toString('base64'),
+      }));
+    }
+  }
+
+  /**
+   * 通知服务器流式响应结束（用于 SSE）。
+   */
+  private notifyStreamEnd(connectionId: string): void {
+    const controller = this.controller as any;
+    if (controller.ws && controller.ws.readyState === WebSocket.OPEN) {
+      controller.ws.send(JSON.stringify({
+        type: 'http_response_end',
+        connectionId,
+      }));
+    }
+  }
+
+
+  /**
    * 向服务器发送错误响应。
    */
   private sendError(connectionId: string, error: string): void {
@@ -283,6 +356,13 @@ export class UnifiedHandler extends EventEmitter {
     if (pending) {
       pending.req.destroy();
       this.pendingConnections.delete(connectionId);
+    }
+
+    // 关闭流式响应（如 SSE）
+    const streaming = this.streamingResponses.get(connectionId);
+    if (streaming) {
+      streaming.destroy();
+      this.streamingResponses.delete(connectionId);
     }
 
     // 关闭 WebSocket 连接
@@ -342,6 +422,12 @@ export class UnifiedHandler extends EventEmitter {
       req.destroy();
     }
     this.pendingConnections.clear();
+
+    // 销毁流式响应
+    for (const res of this.streamingResponses.values()) {
+      res.destroy();
+    }
+    this.streamingResponses.clear();
 
     // 销毁 WebSocket 连接
     for (const ws of this.localWsConnections.values()) {

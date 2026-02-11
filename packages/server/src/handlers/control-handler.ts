@@ -132,8 +132,20 @@ export class ControlHandler {
           break;
 
         case 'http_response':
-          // 客户端发送的格式: { type: 'http_response', connectionId, statusCode, headers, body }
+        case 'http_response_headers':
+        case 'http_response_body':
+          // 普通HTTP响应或流式响应头/体
           this.handleClientResponse(message.connectionId, message);
+          break;
+
+        case 'http_response_data':
+          // 流式响应数据块
+          this.handleClientStreamData(message.connectionId, Buffer.from(message.data, 'base64'));
+          break;
+
+        case 'http_response_end':
+          // 流式响应结束
+          this.handleClientStreamEnd(message.connectionId);
           break;
 
         case 'connection_data':
@@ -408,5 +420,24 @@ export class ControlHandler {
    */
   handleClientClose(connectionId: string, code?: number): void {
     this.proxyHandler.handleClientClose(connectionId, code);
+  }
+
+  /**
+   * 处理来自客户端的流式响应数据
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端发送的流式数据
+   */
+  handleClientStreamData(connectionId: string, data: Buffer): void {
+    this.proxyHandler.handleClientStreamData(connectionId, data);
+  }
+
+  /**
+   * 处理来自客户端的流式响应结束通知
+   *
+   * @param connectionId - 连接唯一标识 ID
+   */
+  handleClientStreamEnd(connectionId: string): void {
+    this.proxyHandler.handleClientStreamEnd(connectionId);
   }
 }
