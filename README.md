@@ -22,6 +22,7 @@ npx @feng3d/cts start -p 9000 -t mytoken
 
 # 客户端（连接本地服务器测试）
 npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "8080:3000:localhost"
+npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "2222:22"
 ```
 
 ### 方式二：全局安装

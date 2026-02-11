@@ -268,6 +268,10 @@ export class Controller extends EventEmitter {
           this.emit('connectionError', message as ConnectionErrorMessage);
           break;
 
+        case MessageType.TCP_DATA:
+          this.emit('tcpData', message);
+          break;
+
         default:
           logger.warn(`未知消息类型: ${msgType}`);
       }

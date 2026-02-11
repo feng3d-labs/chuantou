@@ -35,25 +35,65 @@ function getClientConfigPath(): string {
 /**
  * 解析代理配置字符串为代理配置数组。
  *
- * 字符串格式为逗号分隔的代理项，每项格式为 `remotePort:localPort[:localHost]`。
- * 每个端口同时支持 HTTP 和 WebSocket 协议。
+ * 字符串格式为逗号分隔的代理项，每项格式为 `remotePort:localPort[:localHost[:protocol]]`。
+ * 协议参数可选，支持 'http' 或 'tcp'。如果不指定协议，则端口将同时支持 HTTP、WebSocket 和 TCP。
  *
  * @example
  * ```
- * parseProxies('8080:3000:localhost,8081:3001')
+ * parseProxies('8080:3000:localhost,8081:3001::tcp')
  * ```
  *
- * @param proxiesStr - 代理配置字符串，如 `"8080:3000:localhost,8081:3001"`
+ * @param proxiesStr - 代理配置字符串，如 `"8080:3000:localhost,8081:3001::tcp"`
  * @returns 解析后的代理配置数组
  */
 function parseProxies(proxiesStr: string): ProxyConfig[] {
   return proxiesStr.split(',').map((p: string) => {
     const parts = p.trim().split(':');
-    return {
-      remotePort: parseInt(parts[0], 10),
-      localPort: parseInt(parts[1], 10),
-      localHost: parts[2] || 'localhost',
+    const remotePort = parseInt(parts[0], 10);
+    const localPort = parseInt(parts[1], 10);
+
+    // 处理协议参数：格式为 remotePort:localPort:localHost:protocol
+    // 或 remotePort:localPort::protocol (跳过 localHost)
+    let localHost = 'localhost';
+    let protocol: 'http' | 'tcp' | undefined = undefined;
+
+    if (parts.length >= 4 && parts[3]) {
+      // 如果第4部分存在且非空，检查是否为协议类型
+      if (parts[3] === 'http' || parts[3] === 'tcp') {
+        protocol = parts[3];
+        // 第3部分可能是空字符串或实际的 localHost
+        if (parts[2] && parts[2] !== '') {
+          localHost = parts[2];
+        }
+      } else if (parts[2] === 'http' || parts[2] === 'tcp') {
+        // 第3部分是协议类型
+        protocol = parts[2] as 'http' | 'tcp';
+      } else if (parts[2]) {
+        // 第3部分不是协议类型，当作 localHost
+        localHost = parts[2];
+      }
+    } else if (parts.length >= 3 && parts[2]) {
+      // 检查第3部分是否为协议类型
+      if (parts[2] === 'http' || parts[2] === 'tcp') {
+        protocol = parts[2] as 'http' | 'tcp';
+      } else {
+        // 否则当作 localHost
+        localHost = parts[2];
+      }
+    }
+
+    const config: ProxyConfig = {
+      remotePort,
+      localPort,
+      localHost,
     };
+
+    // 只有在明确指定协议时才添加 protocol 字段
+    if (protocol !== undefined) {
+      config.protocol = protocol;
+    }
+
+    return config;
   });
 }
 

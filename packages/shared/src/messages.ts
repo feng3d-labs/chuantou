@@ -37,14 +37,19 @@ export enum MessageType {
   CONNECTION_CLOSE = 'connection_close',
   /** 连接错误通知消息 */
   CONNECTION_ERROR = 'connection_error',
+
+  /** TCP 数据消息（客户端发送，用于转发 TCP 数据） */
+  TCP_DATA = 'tcp_data',
+  /** TCP 数据响应消息（服务端发送，用于转发 TCP 数据） */
+  TCP_DATA_RESP = 'tcp_data_resp',
 }
 
 /**
  * 协议类型
  *
- * 穿透代理支持的传输协议类型，可选 HTTP 或 WebSocket。
+ * 穿透代理支持的传输协议类型，可选 HTTP、WebSocket 或 TCP。
  */
-export type Protocol = 'http' | 'websocket';
+export type Protocol = 'http' | 'websocket' | 'tcp';
 
 /**
  * 基础消息接口
@@ -96,7 +101,7 @@ export interface AuthRespMessage extends Message {
  * 注册代理服务消息
  *
  * 客户端向服务端请求注册一条代理隧道，指定远程端口到本地服务的映射。
- * 每个端口同时支持 HTTP 和 WebSocket 协议。
+ * 支持 HTTP（含 WebSocket）和 TCP 协议。
  */
 export interface RegisterMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.REGISTER} */
@@ -109,6 +114,8 @@ export interface RegisterMessage extends Message {
     localPort: number;
     /** 本地服务的主机地址，默认为 localhost */
     localHost?: string;
+    /** 代理协议类型 */
+    protocol?: 'http' | 'tcp';
   };
 }
 
@@ -192,7 +199,7 @@ export interface HttpHeaders {
  * 新连接通知消息
  *
  * 当外部用户连接到服务端的代理端口时，服务端向客户端发送此消息通知新连接的到来，
- * 并携带连接的详细信息（HTTP 请求数据或 WebSocket 握手头）。
+ * 并携带连接的详细信息（HTTP 请求数据、WebSocket 握手头或 TCP 连接信息）。
  */
 export interface NewConnectionMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.NEW_CONNECTION} */
@@ -203,6 +210,8 @@ export interface NewConnectionMessage extends Message {
     connectionId: string;
     /** 连接使用的传输协议类型 */
     protocol: Protocol;
+    /** TCP 连接的远程地址（仅 TCP 协议时存在） */
+    remoteAddress?: string;
     /** HTTP 请求方法（仅 HTTP 协议时存在），如 GET、POST 等 */
     method?: string;
     /** HTTP 请求的 URL 路径（仅 HTTP 协议时存在） */
@@ -213,6 +222,8 @@ export interface NewConnectionMessage extends Message {
     body?: string | Buffer;
     /** WebSocket 握手请求头（仅 WebSocket 协议时存在） */
     wsHeaders?: HttpHeaders;
+    /** TCP 连接的初始数据（仅 TCP 协议时可能存在） */
+    data?: string;
   };
 }
 
@@ -263,6 +274,40 @@ export interface ConnectionErrorMessage extends Message {
 }
 
 /**
+ * TCP 数据消息
+ *
+ * 用于在穿透隧道中传输 TCP 连接的原始数据。
+ */
+export interface TcpDataMessage extends Message {
+  /** 消息类型，固定为 {@link MessageType.TCP_DATA} */
+  type: MessageType.TCP_DATA;
+  /** TCP 数据负载 */
+  payload: {
+    /** 连接的唯一标识符 */
+    connectionId: string;
+    /** TCP 数据内容（Base64 编码） */
+    data: string;
+  };
+}
+
+/**
+ * TCP 数据响应消息
+ *
+ * 服务端向客户端转发远程 TCP 数据时使用的消息类型。
+ */
+export interface TcpDataRespMessage extends Message {
+  /** 消息类型，固定为 {@link MessageType.TCP_DATA_RESP} */
+  type: MessageType.TCP_DATA_RESP;
+  /** TCP 数据响应负载 */
+  payload: {
+    /** 连接的唯一标识符 */
+    connectionId: string;
+    /** TCP 数据内容（Base64 编码） */
+    data: string;
+  };
+}
+
+/**
  * 所有消息类型的联合类型
  *
  * 包含穿透代理协议中所有具体消息类型的联合，可用于消息处理函数的参数类型。
@@ -277,7 +322,9 @@ export type AnyMessage =
   | HeartbeatRespMessage
   | NewConnectionMessage
   | ConnectionCloseMessage
-  | ConnectionErrorMessage;
+  | ConnectionErrorMessage
+  | TcpDataMessage
+  | TcpDataRespMessage;
 
 /**
  * 消息类型守卫

@@ -82,7 +82,12 @@ describe('ProxyManager', () => {
       expect(sendRequestSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           type: MessageType.REGISTER,
-          payload: proxyConfig,
+          payload: expect.objectContaining({
+            remotePort: 8080,
+            localPort: 3000,
+            localHost: 'localhost',
+            protocol: 'http', // proxy-manager 会添加默认 protocol
+          }),
         })
       );
     });

@@ -112,7 +112,7 @@ function openBrowser(url: string): void {
 const serverOptions = [
   ['-s, --server <url>', '服务器地址 (如 ws://localhost:9000)', 'ws://localhost:9000'],
   ['-t, --token <token>', '认证令牌'],
-  ['-p, --proxies <proxies>', '代理配置 (格式: remotePort:localPort:localHost,...)'],
+  ['-p, --proxies <proxies>', '代理配置 (格式: remotePort:localPort:localHost 或 remotePort:localPort:localHost:protocol，protocol 可选为 http 或 tcp，默认为 http)'],
   ['--reconnect-interval <ms>', '重连间隔（毫秒）', '5000'],
   ['--max-reconnect <number>', '最大重连次数', '10'],
 ] as const;
@@ -147,10 +147,47 @@ startCmd.action(async (options) => {
   if (proxiesStr) {
     for (const p of proxiesStr.split(',')) {
       const parts = p.trim().split(':');
+      const remotePort = parseInt(parts[0], 10);
+      const localPort = parseInt(parts[1], 10);
+
+      // 处理协议参数：格式为 remotePort:localPort:localHost:protocol
+      // 或 remotePort:localPort::protocol (跳过 localHost)
+      let localHost = 'localhost';
+      let protocol: 'http' | 'tcp' = 'http';
+
+      if (parts.length >= 4 && parts[3]) {
+        // 如果第4部分存在且非空，检查是否为协议类型
+        if (parts[3] === 'http' || parts[3] === 'tcp') {
+          protocol = parts[3];
+          // 第3部分可能是空字符串或实际的 localHost
+          if (parts[2] && parts[2] !== '') {
+            localHost = parts[2];
+          }
+        } else if (parts[2] === 'http' || parts[2] === 'tcp') {
+          // 第3部分是协议类型，第4部分是其他内容（忽略）
+          protocol = parts[2] as 'http' | 'tcp';
+          if (parts[2] !== '' && parts[2] !== 'http' && parts[2] !== 'tcp') {
+            localHost = parts[2];
+          }
+        } else if (parts[2]) {
+          // 第3部分不是协议类型，当作 localHost
+          localHost = parts[2];
+        }
+      } else if (parts.length >= 3 && parts[2]) {
+        // 检查第3部分是否为协议类型
+        if (parts[2] === 'http' || parts[2] === 'tcp') {
+          protocol = parts[2] as 'http' | 'tcp';
+        } else {
+          // 否则当作 localHost
+          localHost = parts[2];
+        }
+      }
+
       proxies.push({
-        remotePort: parseInt(parts[0], 10),
-        localPort: parseInt(parts[1], 10),
-        localHost: parts[2] || 'localhost',
+        remotePort,
+        localPort,
+        localHost,
+        protocol,
       });
     }
   }
@@ -241,7 +278,8 @@ startCmd.action(async (options) => {
     if (proxies.length > 0) {
       console.log(chalk.gray(`  代理映射:`));
       for (const proxy of proxies) {
-        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+        const protocol = proxy.protocol || 'http';
+        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort} (${protocol})`));
       }
     }
 
@@ -348,7 +386,8 @@ program
       console.log(chalk.blue.bold('当前代理映射:'));
       console.log();
       for (const proxy of proxies) {
-        console.log(chalk.gray(`  :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+        const protocol = proxy.protocol || 'http';
+        console.log(chalk.gray(`  :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort} (${protocol})`));
       }
     } catch (err) {
       console.log(chalk.yellow(`获取代理列表失败: ${err instanceof Error ? err.message : err}`));

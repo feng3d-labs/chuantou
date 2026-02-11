@@ -17,6 +17,7 @@ import {
 } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
 import { UnifiedProxyHandler } from './unified-proxy.js';
+import { TcpProxyHandler } from './tcp-proxy.js';
 
 /**
  * 控制通道处理器
@@ -34,22 +35,34 @@ export class ControlHandler {
   private config: ServerConfig;
   /** 统一代理处理器（同时支持 HTTP 和 WebSocket） */
   private proxyHandler: UnifiedProxyHandler;
+  /** TCP 代理处理器（支持 SSH、MySQL 等原始 TCP 连接） */
+  private tcpProxyHandler: TcpProxyHandler;
+
+  /**
+   * 端口到协议类型的映射表
+   *
+   * 记录每个端口注册时使用的协议类型。
+   */
+  private portToProtocol: Map<number, 'http' | 'tcp'> = new Map();
 
   /**
    * 创建控制通道处理器实例
    *
    * @param sessionManager - 会话管理器，用于管理客户端会话
    * @param config - 服务器配置，包含认证令牌等信息
-   * @param proxyHandler - 统一代理处理器，用于启停代理服务器
+   * @param proxyHandler - 统一代理处理器，用于启停 HTTP/WebSocket 代理服务器
+   * @param tcpProxyHandler - TCP 代理处理器，用于启停 TCP 代理服务器
    */
   constructor(
     sessionManager: SessionManager,
     config: ServerConfig,
-    proxyHandler: UnifiedProxyHandler
+    proxyHandler: UnifiedProxyHandler,
+    tcpProxyHandler: TcpProxyHandler
   ) {
     this.sessionManager = sessionManager;
     this.config = config;
     this.proxyHandler = proxyHandler;
+    this.tcpProxyHandler = tcpProxyHandler;
   }
 
   /**
@@ -153,6 +166,12 @@ export class ControlHandler {
           this.handleClientData(message.connectionId, Buffer.from(message.data, 'base64'));
           break;
 
+        case 'tcp_data':
+        case 'tcp_data_resp':
+          // TCP 数据从客户端发送到服务端
+          this.handleTcpData(message.connectionId, Buffer.from(message.data, 'base64'));
+          break;
+
         case MessageType.CONNECTION_CLOSE:
           this.handleClientClose(message.payload.connectionId);
           break;
@@ -224,7 +243,8 @@ export class ControlHandler {
    * 处理端口注册消息
    *
    * 验证客户端认证状态和端口范围（1024-65535），检查端口是否已被占用，
-   * 然后注册端口并启动代理服务器（同时支持 HTTP 和 WebSocket）。
+   * 然后注册端口并启动代理服务器。
+   * 根据协议类型启动相应的代理服务器（HTTP/WebSocket 或 TCP）。
    * 若启动失败则自动回滚端口注册。
    *
    * @param clientId - 客户端唯一标识 ID
@@ -241,7 +261,7 @@ export class ControlHandler {
       return;
     }
 
-    const { remotePort, localPort, localHost } = message.payload;
+    const { remotePort, localPort, localHost, protocol = 'http' } = message.payload;
 
     // 验证端口
     if (remotePort < 1024 || remotePort > 65535) {
@@ -272,9 +292,15 @@ export class ControlHandler {
       return;
     }
 
-    // 启动代理服务器（同时支持 HTTP 和 WebSocket）
+    // 根据协议类型启动相应的代理服务器
+    // - protocol === 'tcp' 或未指定时，使用 unified-proxy（支持 HTTP + WebSocket + TCP）
+    // - 保留 tcpProxyHandler 用于仅 TCP 的特殊场景（暂不使用）
     try {
+      // 默认使用 unified-proxy，它支持 HTTP、WebSocket 和 TCP
       await this.proxyHandler.startProxy(remotePort, clientId);
+
+      // 记录端口对应的协议类型（全部视为支持所有协议）
+      this.portToProtocol.set(remotePort, protocol || 'http');
 
       this.sendMessage(socket, createMessage(MessageType.REGISTER_RESP, {
         success: true,
@@ -282,7 +308,8 @@ export class ControlHandler {
         remoteUrl: `http://${this.config.host}:${remotePort}`,
       }, message.id));
 
-      logger.log(`客户端 ${clientId} 注册了代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
+      const protocolLabel = protocol === 'tcp' ? 'TCP' : 'HTTP + WebSocket + TCP';
+      logger.log(`客户端 ${clientId} 注册了 ${protocolLabel} 代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
     } catch (error) {
       // 启动代理失败，回滚端口注册
       this.sessionManager.unregisterPort(clientId, remotePort);
@@ -320,8 +347,11 @@ export class ControlHandler {
       return;
     }
 
-    // 停止代理
+    // 使用统一的 proxyHandler 停止代理（支持所有协议）
     await this.proxyHandler.stopProxy(remotePort);
+
+    // 清理协议映射
+    this.portToProtocol.delete(remotePort);
 
     // 注销端口
     const unregistered = this.sessionManager.unregisterPort(clientId, remotePort);
@@ -358,7 +388,14 @@ export class ControlHandler {
     if (clientInfo) {
       // 停止所有代理
       for (const port of clientInfo.registeredPorts) {
-        this.proxyHandler.stopProxy(port).catch(logger.error);
+        const protocol = this.portToProtocol.get(port) || 'http';
+        if (protocol === 'tcp') {
+          this.tcpProxyHandler.stopProxy(port).catch(logger.error);
+        } else {
+          this.proxyHandler.stopProxy(port).catch(logger.error);
+        }
+        // 清理协议映射
+        this.portToProtocol.delete(port);
       }
     }
     this.sessionManager.removeSession(clientId);
@@ -420,7 +457,22 @@ export class ControlHandler {
    * @param code - 可选的关闭状态码
    */
   handleClientClose(connectionId: string, code?: number): void {
+    // 尝试在 HTTP/WebSocket 代理处理器中处理
     this.proxyHandler.handleClientClose(connectionId, code);
+    // 尝试在 TCP 代理处理器中处理
+    this.tcpProxyHandler.handleClientClose(connectionId);
+  }
+
+  /**
+   * 处理来自客户端的 TCP 数据
+   *
+   * 将客户端发送的 TCP 数据转发给对应的外部用户 TCP 连接。
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端发送的 TCP 数据
+   */
+  handleTcpData(connectionId: string, data: Buffer): void {
+    this.tcpProxyHandler.handleClientData(connectionId, data);
   }
 
   /**

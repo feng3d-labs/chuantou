@@ -12,6 +12,7 @@ import { WebSocket } from 'ws';
 import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { URL } from 'url';
+import { Socket } from 'net';
 import { Controller } from '../controller.js';
 import { ProxyConfig, HttpHeaders, logger } from '@feng3d/chuantou-shared';
 import {
@@ -54,6 +55,9 @@ export class UnifiedHandler extends EventEmitter {
   /** 本地 WebSocket 连接映射表 */
   private localWsConnections: Map<string, WebSocket> = new Map();
 
+  /** 本地 TCP 连接映射表 */
+  private localTcpConnections: Map<string, any> = new Map();
+
   /** 流式 HTTP 响应映射表（如 SSE） */
   private streamingResponses: Map<string, any> = new Map();
 
@@ -77,6 +81,9 @@ export class UnifiedHandler extends EventEmitter {
         this.handleHttpConnection(msg);
       } else if (msg.payload.protocol === 'websocket') {
         this.handleWebSocketConnection(msg);
+      } else if (msg.payload.protocol === 'tcp') {
+        // TCP 协议（如 SSH、MySQL）
+        this.handleTcpConnection(msg);
       }
     });
 
@@ -91,21 +98,14 @@ export class UnifiedHandler extends EventEmitter {
 
   /**
    * 设置从服务器接收数据的监听器。
+   * 监听控制器的 tcpData 事件来接收 TCP 数据。
    */
   private setupDataListener(): void {
-    const controller = this.controller as any;
-    if (controller.ws) {
-      controller.ws.on('message', (data: Buffer) => {
-        try {
-          const msg = JSON.parse(data.toString());
-          if (msg.type === 'connection_data') {
-            this.handleClientData(msg.connectionId, msg.data);
-          }
-        } catch {
-          // 忽略解析错误
-        }
-      });
-    }
+    // 监听从服务器转发的客户端数据（通过 tcp_data 消息）
+    this.controller.on('tcpData', (msg: any) => {
+      // tcp_data 消息格式: { type: 'tcp_data', connectionId, data }
+      this.handleClientData(msg.connectionId, msg.data);
+    });
   }
 
   /**
@@ -243,7 +243,62 @@ export class UnifiedHandler extends EventEmitter {
   }
 
   /**
-   * 将本地数据转发到服务器。
+   * 处理来自服务器的新 TCP 连接请求。
+   */
+  private handleTcpConnection(msg: NewConnectionMessage): void {
+    const { connectionId, remoteAddress } = msg.payload;
+
+    logger.log(`TCP 连接: ${remoteAddress} -> ${this.config.localHost || 'localhost'}:${this.config.localPort} (${connectionId})`);
+
+    // 连接到本地 TCP 服务
+    const socket = new Socket();
+
+    socket.on('connect', () => {
+      logger.log(`TCP 已连接: ${connectionId}`);
+    });
+
+    socket.on('data', (data: Buffer) => {
+      logger.log(`收到本地 TCP 数据 ${connectionId}: ${data.length} 字节`);
+      this.forwardTcpDataToServer(connectionId, data);
+    });
+
+    socket.on('close', () => {
+      logger.log(`TCP 连接关闭: ${connectionId}`);
+      this.notifyServerClose(connectionId, 1000);
+      this.cleanupTcpConnection(connectionId);
+    });
+
+    socket.on('error', (error: Error) => {
+      logger.error(`TCP 连接错误 ${connectionId}:`, error.message);
+      this.notifyServerClose(connectionId, 1011);
+      this.cleanupTcpConnection(connectionId);
+    });
+
+    // 连接到本地服务
+    socket.connect({
+      host: this.config.localHost || 'localhost',
+      port: this.config.localPort,
+    });
+
+    this.localTcpConnections.set(connectionId, socket);
+  }
+
+  /**
+   * 将本地 TCP 数据转发到服务器。
+   */
+  private forwardTcpDataToServer(connectionId: string, data: Buffer): void {
+    const controller = this.controller as any;
+    if (controller.ws && controller.ws.readyState === WebSocket.OPEN) {
+      controller.ws.send(JSON.stringify({
+        type: 'tcp_data',
+        connectionId,
+        data: data.toString('base64'),
+      }));
+    }
+  }
+
+  /**
+   * 将本地数据转发到服务器（用于 WebSocket）。
    */
   private forwardToServer(connectionId: string, data: Buffer): void {
     const controller = this.controller as any;
@@ -260,9 +315,21 @@ export class UnifiedHandler extends EventEmitter {
    * 处理从服务器接收到的远程客户端数据。
    */
   private handleClientData(connectionId: string, data: string): void {
+    logger.log(`收到服务器数据 ${connectionId}: ${data?.length || 0} 字节`);
+
+    // 尝试从 WebSocket 连接获取
     const localWs = this.localWsConnections.get(connectionId);
     if (localWs && localWs.readyState === WebSocket.OPEN) {
       localWs.send(Buffer.from(data, 'base64'));
+    }
+
+    // 尝试从 TCP 连接获取
+    const localTcpSocket = this.localTcpConnections.get(connectionId);
+    if (localTcpSocket && !localTcpSocket.destroyed) {
+      localTcpSocket.write(Buffer.from(data, 'base64'));
+      logger.log(`转发 TCP 数据到本地 ${connectionId}: ${data?.length || 0} 字节`);
+    } else {
+      logger.warn(`TCP 连接 ${connectionId} 不存在或已关闭`);
     }
   }
 
@@ -336,9 +403,9 @@ export class UnifiedHandler extends EventEmitter {
   }
 
   /**
-   * 通知服务器某个 WebSocket 连接已关闭。
+   * 通知服务器某个连接已关闭。
    */
-  private notifyServerClose(connectionId: string, code: number): void {
+  private notifyServerClose(connectionId: string, code?: number): void {
     const closeMsg = createMessage(MessageType.CONNECTION_CLOSE, {
       connectionId,
     });
@@ -351,26 +418,15 @@ export class UnifiedHandler extends EventEmitter {
   private handleConnectionClose(msg: ConnectionCloseMessage): void {
     const { connectionId } = msg.payload;
 
-    // 关闭 HTTP 连接
-    const pending = this.pendingConnections.get(connectionId);
-    if (pending) {
-      pending.req.destroy();
-      this.pendingConnections.delete(connectionId);
-    }
-
-    // 关闭流式响应（如 SSE）
-    const streaming = this.streamingResponses.get(connectionId);
-    if (streaming) {
-      streaming.destroy();
-      this.streamingResponses.delete(connectionId);
-    }
-
-    // 关闭 WebSocket 连接
+    // 尝试清理 WebSocket 连接
     const localWs = this.localWsConnections.get(connectionId);
     if (localWs) {
       localWs.close(1000, '服务器已关闭连接');
     }
     this.cleanupWsConnection(connectionId);
+
+    // 尝试清理 TCP 连接
+    this.cleanupTcpConnection(connectionId);
   }
 
   /**
@@ -387,7 +443,21 @@ export class UnifiedHandler extends EventEmitter {
   /**
    * 过滤请求头，移除逐跳头部字段。
    */
-  private filterHeaders(headers: HttpHeaders | undefined): Record<string, string> {
+  /**
+   * 清理 TCP 连接资源。
+     */
+    private cleanupTcpConnection(connectionId: string): void {
+      const socket = this.localTcpConnections.get(connectionId);
+      if (socket) {
+        socket.destroy();
+      }
+      this.localTcpConnections.delete(connectionId);
+    }
+
+    /**
+     * 过滤请求头，移除逐跳头部字段。
+     */
+    private filterHeaders(headers: HttpHeaders | undefined): Record<string, string> {
     if (!headers) {
       return {};
     }
@@ -434,6 +504,12 @@ export class UnifiedHandler extends EventEmitter {
       ws.close(1000, '处理器已销毁');
     }
     this.localWsConnections.clear();
+
+    // 销毁 TCP 连接
+    for (const socket of this.localTcpConnections.values()) {
+      socket.destroy();
+    }
+    this.localTcpConnections.clear();
 
     this.removeAllListeners();
   }

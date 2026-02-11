@@ -130,10 +130,20 @@ export const DEFAULT_CONFIG = {
 } as const;
 
 /**
+ * 代理协议类型
+ *
+ * 定义支持的代理协议类型。
+ */
+export type ProxyProtocol = 'http' | 'tcp';
+export type ConnectionProtocol = 'http' | 'websocket' | 'tcp';
+
+/**
  * 代理配置接口
  *
  * 描述单条代理隧道的配置，指定远程端口到本地端口的映射关系。
- * 每个端口同时支持 HTTP 和 WebSocket 协议，无需单独指定。
+ * 每个端口可以同时支持多种协议。
+ * 默认同时支持 HTTP 和 WebSocket（端口 8080），
+ * 或指定为 TCP（端口 2222）。
  */
 export interface ProxyConfig {
   /** 服务端监听的远程端口号，外部用户通过此端口访问代理服务 */
@@ -142,6 +152,8 @@ export interface ProxyConfig {
   localPort: number;
   /** 本地服务的主机地址，默认为 localhost */
   localHost?: string;
+  /** 代理协议类型，默认为 http（同时支持 HTTP 和 WebSocket） */
+  protocol?: ProxyProtocol;
 }
 
 /**
@@ -201,7 +213,7 @@ export interface ConnectionInfo {
   /** 发起连接的远程客户端 IP 地址 */
   remoteAddress: string;
   /** 该连接使用的传输协议类型 */
-  protocol: 'http' | 'websocket';
+  protocol: 'http' | 'websocket' | 'tcp';
   /** 连接建立的时间戳（Unix 毫秒） */
   createdAt: number;
 }
