@@ -2,7 +2,9 @@
  * 协议常量
  */
 export const PROTOCOL = {
+  /** 穿透协议版本号 */
   VERSION: '1.0.0',
+  /** 客户端与服务端建立 WebSocket 控制通道的 URL 路径，如 ws://host:9000/control */
   CONTROL_PATH: '/control',
 } as const;
 
@@ -59,8 +61,9 @@ export const HTTP_STATUS = {
  * 默认配置
  */
 export const DEFAULT_CONFIG = {
-  // 控制通道配置
+  /** 服务端监听的控制端口，客户端通过此端口建立 WebSocket 控制通道进行认证、注册代理等操作 */
   CONTROL_PORT: 9000,
+  /** 控制通道的 WebSocket URL 路径，客户端连接地址为 ws://host:{CONTROL_PORT}{CONTROL_PATH} */
   CONTROL_PATH: '/control',
 
   // 心跳配置

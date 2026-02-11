@@ -1,26 +1,49 @@
 import { WebSocketServer } from 'ws';
-import { createServer as createHttpServer } from 'http';
+import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import { createServer as createHttpsServer } from 'https';
-import { Config } from './config.js';
+import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
 import { HttpProxyHandler } from './handlers/http-proxy.js';
 import { WsProxyHandler } from './handlers/ws-proxy.js';
 
 /**
+ * 服务器状态信息
+ */
+export interface ServerStatus {
+  running: boolean;
+  host: string;
+  controlPort: number;
+  tls: boolean;
+  uptime: number;
+  authenticatedClients: number;
+  totalPorts: number;
+  activeConnections: number;
+}
+
+/**
  * 转发服务器
  */
 export class ForwardServer {
-  private config: Config;
+  private config: ServerConfig;
   private sessionManager: SessionManager;
   private httpProxyHandler: HttpProxyHandler;
   private wsProxyHandler: WsProxyHandler;
   private controlHandler: ControlHandler;
   private controlServer: WebSocketServer;
   private httpServer?: ReturnType<typeof createHttpServer> | ReturnType<typeof createHttpsServer>;
+  private statsInterval?: ReturnType<typeof setInterval>;
+  private startedAt?: number;
 
-  constructor(config: Config) {
-    this.config = config;
+  constructor(options: Partial<ServerConfig> = {}) {
+    this.config = {
+      host: options.host ?? '0.0.0.0',
+      controlPort: options.controlPort ?? DEFAULT_CONFIG.CONTROL_PORT,
+      authTokens: options.authTokens ?? [],
+      heartbeatInterval: options.heartbeatInterval ?? DEFAULT_CONFIG.HEARTBEAT_INTERVAL,
+      sessionTimeout: options.sessionTimeout ?? DEFAULT_CONFIG.SESSION_TIMEOUT,
+      tls: options.tls,
+    };
     this.sessionManager = new SessionManager(
       this.config.heartbeatInterval,
       this.config.sessionTimeout
@@ -40,25 +63,20 @@ export class ForwardServer {
    * 启动服务器
    */
   async start(): Promise<void> {
-    // 启动控制通道WebSocket服务器
-    const serverOptions = this.config.isTlsEnabled() ? {
-      key: this.config.tls!.key,
-      cert: this.config.tls!.cert,
+    const serverOptions = this.config.tls ? {
+      key: this.config.tls.key,
+      cert: this.config.tls.cert,
     } : undefined;
 
-    // 创建 HTTP/HTTPS 服务器
     this.httpServer = serverOptions
       ? createHttpsServer(serverOptions)
       : createHttpServer();
 
-    this.httpServer.on('request', (_req, res) => {
-      // 处理 HTTP 请求（可以在这里添加代理功能）
-      res.writeHead(200);
-      res.end('Chuantou Server is running');
+    this.httpServer.on('request', (req: IncomingMessage, res: ServerResponse) => {
+      this.handleHttpRequest(req, res);
     });
 
     this.httpServer.on('upgrade', (req, socket, head) => {
-      // 处理 WebSocket 升级请求
       this.controlServer.handleUpgrade(req, socket, head, (ws) => {
         this.controlHandler.handleConnection(ws);
       });
@@ -69,15 +87,38 @@ export class ForwardServer {
     });
 
     this.httpServer.listen(this.config.controlPort, this.config.host, () => {
-      const protocol = this.config.isTlsEnabled() ? 'https/wss' : 'http/ws';
+      const protocol = this.config.tls ? 'https/wss' : 'http/ws';
       console.log(`Control server listening on ${protocol}://${this.config.host}:${this.config.controlPort}`);
     });
 
-    // 打印统计信息
-    setInterval(() => {
+    this.startedAt = Date.now();
+
+    this.statsInterval = setInterval(() => {
       const stats = this.sessionManager.getStats();
       console.log(`Stats: ${stats.authenticatedClients} authenticated clients, ${stats.totalPorts} ports, ${stats.totalConnections} connections`);
-    }, 60000); // 每分钟打印一次
+    }, 60000);
+  }
+
+  /**
+   * 处理 HTTP 请求（包含管理端点）
+   */
+  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+    if (req.url === '/_chuantou/status' && req.method === 'GET') {
+      const status = this.getStatus();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(status));
+      return;
+    }
+
+    if (req.url === '/_chuantou/stop' && req.method === 'POST') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ message: 'Server stopping' }));
+      this.stop();
+      return;
+    }
+
+    res.writeHead(200);
+    res.end('Chuantou Server is running');
   }
 
   /**
@@ -86,28 +127,46 @@ export class ForwardServer {
   async stop(): Promise<void> {
     console.log('Stopping server...');
 
-    // 停止 WebSocket 服务器
+    if (this.statsInterval) {
+      clearInterval(this.statsInterval);
+      this.statsInterval = undefined;
+    }
+
     this.controlServer.close();
 
-    // 停止 HTTP 服务器
     if (this.httpServer) {
       this.httpServer.close();
     }
 
-    // 停止所有代理
     await this.httpProxyHandler.stopAll();
     await this.wsProxyHandler.stopAll();
 
-    // 清理会话
     this.sessionManager.clear();
 
     console.log('Server stopped');
   }
 
   /**
+   * 获取服务器状态
+   */
+  getStatus(): ServerStatus {
+    const stats = this.sessionManager.getStats();
+    return {
+      running: this.httpServer?.listening ?? false,
+      host: this.config.host,
+      controlPort: this.config.controlPort,
+      tls: this.config.tls !== undefined,
+      uptime: this.startedAt ? Date.now() - this.startedAt : 0,
+      authenticatedClients: stats.authenticatedClients,
+      totalPorts: stats.totalPorts,
+      activeConnections: stats.totalConnections,
+    };
+  }
+
+  /**
    * 获取配置
    */
-  getConfig(): Config {
+  getConfig(): ServerConfig {
     return this.config;
   }
 

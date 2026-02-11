@@ -1,18 +1,14 @@
 import { WebSocket } from 'ws';
-import { v4 as uuidv4 } from 'uuid';
 import {
   MessageType,
-  isMessageType,
   createMessage,
   AuthMessage,
   RegisterMessage,
   HeartbeatMessage,
   UnregisterMessage,
-  ErrorCode,
-  ProtocolError,
+  ServerConfig,
 } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
-import { Config } from '../config.js';
 import { HttpProxyHandler } from './http-proxy.js';
 import { WsProxyHandler } from './ws-proxy.js';
 
@@ -21,13 +17,13 @@ import { WsProxyHandler } from './ws-proxy.js';
  */
 export class ControlHandler {
   private sessionManager: SessionManager;
-  private config: Config;
+  private config: ServerConfig;
   private httpProxyHandler: HttpProxyHandler;
   private wsProxyHandler: WsProxyHandler;
 
   constructor(
     sessionManager: SessionManager,
-    config: Config,
+    config: ServerConfig,
     httpProxyHandler: HttpProxyHandler,
     wsProxyHandler: WsProxyHandler
   ) {
@@ -129,7 +125,7 @@ export class ControlHandler {
       return;
     }
 
-    if (!this.config.isValidToken(token)) {
+    if (!this.config.authTokens.includes(token)) {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,
         error: 'Invalid token',
