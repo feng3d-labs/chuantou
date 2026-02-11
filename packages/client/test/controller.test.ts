@@ -626,6 +626,65 @@ describe('Controller', () => {
     });
   });
 
+  describe('connect', () => {
+    /*
+     * 注意: connect() 方法的完整测试需要真实的 WebSocket 服务器
+     * 以下是简单的验证测试，主要代码路径需要集成测试
+     */
+    it('应该存在 connect 方法', () => {
+      const controller = new Controller(config);
+      expect(typeof controller.connect).toBe('function');
+    });
+  });
+
+  describe('authenticate', () => {
+    it('应该发送认证消息并处理成功响应', async () => {
+      const controller = new Controller(config);
+      const mockWs = {
+        readyState: 1,
+        send: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+      (controller as any).connected = true;
+
+      const authenticatedSpy = vi.fn();
+      controller.on('authenticated', authenticatedSpy);
+
+      // Mock sendRequest 来模拟认证流程
+      vi.spyOn(controller, 'sendMessage' as any).mockReturnValue(true);
+      vi.spyOn(controller as any, 'sendRequest').mockResolvedValue({
+        id: 'test-auth-id',
+        type: 'AUTH_RESP',
+        payload: { success: true },
+      });
+
+      await (controller as any).authenticate();
+
+      expect(controller.isAuthenticated()).toBe(true);
+      expect(authenticatedSpy).toHaveBeenCalled();
+    });
+
+    it('应该在认证失败时抛出错误', async () => {
+      const controller = new Controller(config);
+      const mockWs = {
+        readyState: 1,
+        send: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+      (controller as any).connected = true;
+
+      // Mock sendRequest 返回失败响应
+      vi.spyOn(controller, 'sendMessage' as any).mockReturnValue(true);
+      vi.spyOn(controller as any, 'sendRequest').mockResolvedValue({
+        id: 'test-auth-id',
+        type: 'AUTH_RESP',
+        payload: { success: false, error: 'Invalid token' },
+      });
+
+      await expect((controller as any).authenticate()).rejects.toThrow('认证失败');
+    });
+  });
+
   /*
    * 以下功能需要真实的 WebSocket 服务器和网络连接，单元测试无法覆盖：
    *

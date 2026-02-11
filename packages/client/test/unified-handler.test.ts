@@ -113,6 +113,63 @@ describe('UnifiedHandler', () => {
 
       expect(onSpy).toHaveBeenCalledWith('connectionClose', expect.any(Function));
     });
+
+    it('应该在收到 http 协议的 newConnection 事件时调用 handleHttpConnection', () => {
+      const handler = new UnifiedHandler(controller, proxyConfig);
+      const handleHttpConnectionSpy = vi.spyOn(handler as any, 'handleHttpConnection');
+
+      const httpMsg = {
+        id: 'test-id',
+        type: MessageType.NEW_CONNECTION,
+        payload: {
+          connectionId: 'test-conn',
+          protocol: 'http',
+          method: 'GET',
+          url: '/test',
+          headers: {},
+          body: null,
+        },
+      };
+
+      controller.emit('newConnection', httpMsg);
+
+      expect(handleHttpConnectionSpy).toHaveBeenCalledWith(httpMsg);
+    });
+
+    it('应该在收到 websocket 协议的 newConnection 事件时调用 handleWebSocketConnection', () => {
+      const handler = new UnifiedHandler(controller, proxyConfig);
+      const handleWebSocketConnectionSpy = vi.spyOn(handler as any, 'handleWebSocketConnection');
+
+      const wsMsg = {
+        id: 'test-id',
+        type: MessageType.NEW_CONNECTION,
+        payload: {
+          connectionId: 'test-conn',
+          protocol: 'websocket',
+          url: '/ws',
+          wsHeaders: {},
+        },
+      };
+
+      controller.emit('newConnection', wsMsg);
+
+      expect(handleWebSocketConnectionSpy).toHaveBeenCalledWith(wsMsg);
+    });
+
+    it('应该在收到 connectionClose 事件时调用 handleConnectionClose', () => {
+      const handler = new UnifiedHandler(controller, proxyConfig);
+      const handleConnectionCloseSpy = vi.spyOn(handler as any, 'handleConnectionClose');
+
+      const closeMsg = {
+        id: 'test-id',
+        type: MessageType.CONNECTION_CLOSE,
+        payload: { connectionId: 'test-conn' },
+      };
+
+      controller.emit('connectionClose', closeMsg);
+
+      expect(handleConnectionCloseSpy).toHaveBeenCalledWith(closeMsg);
+    });
   });
 
   describe('filterHeaders', () => {
@@ -669,6 +726,119 @@ describe('UnifiedHandler', () => {
       expect(() => {
         new UnifiedHandler(controller, proxyConfig);
       }).not.toThrow();
+    });
+
+    it('应该在 ws 存在时设置消息监听器', () => {
+      const mockWs = {
+        readyState: 1,
+        on: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+
+      // 创建 handler 应该设置监听器
+      new UnifiedHandler(controller, proxyConfig);
+
+      // 验证 on 被调用
+      expect(mockWs.on).toHaveBeenCalledWith('message', expect.any(Function));
+    });
+
+    it('应该处理 connection_data 类型的消息', () => {
+      const mockWs = {
+        readyState: 1,
+        on: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+
+      const handler = new UnifiedHandler(controller, proxyConfig);
+
+      // 获取 message 监听器
+      const messageListener = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'message'
+      )?.[1];
+
+      expect(messageListener).toBeDefined();
+
+      if (messageListener) {
+        // 添加一个 WebSocket 连接用于测试
+        const testWs = {
+          readyState: 1,
+          send: vi.fn(),
+        };
+        handler.localWsConnections.set('test-conn', testWs as any);
+
+        // 模拟收到 connection_data 消息
+        const dataMsg = JSON.stringify({
+          type: 'connection_data',
+          connectionId: 'test-conn',
+          data: Buffer.from('test data').toString('base64'),
+        });
+        messageListener(Buffer.from(dataMsg));
+
+        // 验证数据被发送到本地 WebSocket
+        expect(testWs.send).toHaveBeenCalled();
+      }
+    });
+
+    it('应该忽略非 connection_data 类型的消息', () => {
+      const mockWs = {
+        readyState: 1,
+        on: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+
+      const handler = new UnifiedHandler(controller, proxyConfig);
+
+      const messageListener = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'message'
+      )?.[1];
+
+      if (messageListener) {
+        // 添加一个 WebSocket 连接
+        const testWs = {
+          readyState: 1,
+          send: vi.fn(),
+        };
+        handler.localWsConnections.set('test-conn', testWs as any);
+
+        // 模拟收到其他类型的消息
+        const dataMsg = JSON.stringify({
+          type: 'other_type',
+          connectionId: 'test-conn',
+          data: Buffer.from('test data').toString('base64'),
+        });
+        messageListener(Buffer.from(dataMsg));
+
+        // 不应该发送数据
+        expect(testWs.send).not.toHaveBeenCalled();
+      }
+    });
+
+    it('应该忽略无法解析的 JSON 消息', () => {
+      const mockWs = {
+        readyState: 1,
+        on: vi.fn(),
+      };
+      (controller as any).ws = mockWs;
+
+      const handler = new UnifiedHandler(controller, proxyConfig);
+
+      const messageListener = mockWs.on.mock.calls.find(
+        (call: any[]) => call[0] === 'message'
+      )?.[1];
+
+      if (messageListener) {
+        // 添加一个 WebSocket 连接
+        const testWs = {
+          readyState: 1,
+          send: vi.fn(),
+        };
+        handler.localWsConnections.set('test-conn', testWs as any);
+
+        // 模拟收到无效 JSON - 不应该抛出错误
+        expect(() => {
+          messageListener(Buffer.from('invalid json'));
+        }).not.toThrow();
+      }
     });
   });
 
