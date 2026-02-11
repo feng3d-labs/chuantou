@@ -136,10 +136,11 @@ jobs:
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s" >> changelog.md
           fi
 
+          # 使用分隔符 __CHANGELOG_DELIMITER__ 避免冲突
           {
-            echo 'changelog<<EOF'
+            echo 'changelog<<__CHANGELOG_DELIMITER__'
             cat changelog.md
-            echo 'EOF'
+            echo '__CHANGELOG_DELIMITER__'
           } >> $GITHUB_OUTPUT
 
       - name: Create tag
