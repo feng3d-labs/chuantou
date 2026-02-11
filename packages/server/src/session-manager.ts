@@ -383,4 +383,25 @@ export class SessionManager {
     this.clients.clear();
     this.socketToClientId.clear();
   }
+
+  /**
+   * 获取已认证客户端的会话列表
+   *
+   * 返回所有已认证客户端的简要信息，用于状态展示。
+   *
+   * @returns 会话列表数组
+   */
+  getSessions(): Array<{ clientId: string; connectedAt: number; registeredPorts: number[] }> {
+    const result: Array<{ clientId: string; connectedAt: number; registeredPorts: number[] }> = [];
+    for (const [id, info] of this.clients.entries()) {
+      if (info.authenticated) {
+        result.push({
+          clientId: id,
+          connectedAt: info.authenticatedAt ?? 0,
+          registeredPorts: Array.from(info.registeredPorts),
+        });
+      }
+    }
+    return result;
+  }
 }

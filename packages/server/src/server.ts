@@ -13,6 +13,258 @@ import { ControlHandler } from './handlers/control-handler.js';
 import { HttpProxyHandler } from './handlers/http-proxy.js';
 import { WsProxyHandler } from './handlers/ws-proxy.js';
 
+/** 状态页面 HTML 模板 */
+const STATUS_HTML = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>穿透服务器状态</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      color: #e0e0e0;
+      padding: 20px;
+    }
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+      padding: 30px 20px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 16px;
+      backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .header h1 {
+      font-size: 28px;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #00d9ff, #00ff88);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .header .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .status.running {
+      background: rgba(0, 255, 136, 0.15);
+      color: #00ff88;
+    }
+    .status.running::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #00ff88;
+      animation: pulse 1.5s infinite;
+    }
+    .status.stopped {
+      background: rgba(255, 77, 77, 0.15);
+      color: #ff4d4d;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(10px);
+    }
+    .card-label {
+      font-size: 12px;
+      color: #888;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .card-value {
+      font-size: 24px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .card-value .unit {
+      font-size: 14px;
+      color: #888;
+      font-weight: 400;
+    }
+    .sessions {
+      background: rgba(255,255,255,0.05);
+      border-radius: 12px;
+      padding: 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+      margin-top: 20px;
+    }
+    .sessions-title {
+      font-size: 14px;
+      color: #888;
+      margin-bottom: 16px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .session-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 16px;
+      background: rgba(0,0,0,0.2);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 14px;
+    }
+    .session-item:last-child {
+      margin-bottom: 0;
+    }
+    .session-id {
+      font-family: monospace;
+      color: #00d9ff;
+    }
+    .session-time {
+      color: #888;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 30px;
+      color: #666;
+      font-size: 14px;
+    }
+    .footer {
+      text-align: center;
+      margin-top: 30px;
+      padding: 20px;
+      color: #666;
+      font-size: 12px;
+    }
+    .last-update {
+      text-align: center;
+      color: #666;
+      font-size: 12px;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🚀 feng3d-cts 穿透服务器</h1>
+      <div class="status running" id="status">运行中</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-label">监听地址</div>
+        <div class="card-value" id="host">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">运行时长</div>
+        <div class="card-value"><span id="uptime">-</span><span class="unit"> 秒</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">客户端</div>
+        <div class="card-value"><span id="clients">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">端口</div>
+        <div class="card-value"><span id="ports">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">连接数</div>
+        <div class="card-value"><span id="connections">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">TLS</div>
+        <div class="card-value" id="tls">-</div>
+      </div>
+    </div>
+
+    <div class="sessions">
+      <div class="sessions-title">客户端会话</div>
+      <div id="sessions-list"></div>
+    </div>
+
+    <div class="last-update">最后更新: <span id="lastUpdate">-</span></div>
+
+    <div class="footer">
+      <a href="https://github.com/feng3d/chuantou" target="_blank" style="color: #00d9ff; text-decoration: none;">feng3d-cts</a>
+      — 内网穿透服务端
+    </div>
+  </div>
+
+  <script>
+    function formatUptime(ms) {
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      if (days > 0) return \`\${days}天 \${hours % 24}小时\`;
+      if (hours > 0) return \`\${hours}小时 \${minutes % 60}分钟\`;
+      if (minutes > 0) return \`\${minutes}分钟 \${seconds % 60}秒\`;
+      return \`\${seconds}秒\`;
+    }
+
+    function formatTime(timestamp) {
+      return new Date(timestamp).toLocaleTimeString('zh-CN');
+    }
+
+    async function updateStatus() {
+      try {
+        const res = await fetch('/_chuantou/status');
+        const data = await res.json();
+
+        document.getElementById('host').textContent = data.host + ':' + data.controlPort;
+        document.getElementById('uptime').textContent = formatUptime(data.uptime);
+        document.getElementById('clients').textContent = data.authenticatedClients;
+        document.getElementById('ports').textContent = data.totalPorts;
+        document.getElementById('connections').textContent = data.activeConnections;
+        document.getElementById('tls').textContent = data.tls ? '已启用' : '已禁用';
+        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
+
+        // 获取会话列表
+        const sessionsRes = await fetch('/_chuantou/sessions');
+        const sessions = await sessionsRes.json();
+        const listEl = document.getElementById('sessions-list');
+        if (sessions.length === 0) {
+          listEl.innerHTML = '<div class="empty-state">暂无客户端连接</div>';
+        } else {
+          listEl.innerHTML = sessions.map(s => \`
+            <div class="session-item">
+              <span class="session-id">\${s.clientId.slice(0, 8)}...</span>
+              <span class="session-time">连接于 \${formatTime(s.connectedAt)}</span>
+            </div>
+          \`).join('');
+        }
+      } catch (e) {
+        console.error('获取状态失败:', e);
+      }
+    }
+
+    updateStatus();
+    setInterval(updateStatus, 3000);
+  </script>
+</body>
+</html>
+`;
+
 /**
  * 服务器状态信息接口
  *
@@ -144,22 +396,42 @@ export class ForwardServer {
    * 处理 HTTP 请求（包含管理端点）
    *
    * 提供以下管理端点：
-   * - `GET /_chuantou/status` — 返回服务器状态信息
-   * - `POST /_chuantou/stop` — 停止服务器
-   * - 其他请求返回默认欢迎页
+   * - `GET /` — 返回状态监控页面（HTML）
+   * - `GET /_chuantou/status` — 返回服务器状态信息（JSON）
+   * - `GET /_chuantou/sessions` — 返回会话列表（JSON）
+   * - `POST /_chuantou/stop` — 停止服务器（JSON）
    *
    * @param req - HTTP 请求对象
    * @param res - HTTP 响应对象
    */
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
-    if (req.url === '/_chuantou/status' && req.method === 'GET') {
+    const url = req.url ?? '/';
+
+    // 状态监控页面
+    if (url === '/' && req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      res.end(STATUS_HTML);
+      return;
+    }
+
+    // 状态 API
+    if (url === '/_chuantou/status' && req.method === 'GET') {
       const status = this.getStatus();
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify(status));
       return;
     }
 
-    if (req.url === '/_chuantou/stop' && req.method === 'POST') {
+    // 会话列表 API
+    if (url === '/_chuantou/sessions' && req.method === 'GET') {
+      const sessions = this.sessionManager.getSessions();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(sessions));
+      return;
+    }
+
+    // 停止服务器 API
+    if (url === '/_chuantou/stop' && req.method === 'POST') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message: '服务器正在停止' }));
       this.stop();

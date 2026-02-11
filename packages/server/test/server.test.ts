@@ -148,7 +148,7 @@ describe('ForwardServer', () => {
       server = null; // 已通过endpoint停止
     });
 
-    it('普通GET请求应该返回欢迎页', async () => {
+    it('普通GET请求应该返回状态页面', async () => {
       const port = await getRandomPort();
       server = new ForwardServer({ controlPort: port, host: '127.0.0.1' });
       await server.start();
@@ -156,7 +156,9 @@ describe('ForwardServer', () => {
 
       const res = await httpRequest(port, 'GET', '/');
       expect(res.statusCode).toBe(200);
-      expect(res.body).toBe('穿透服务器正在运行');
+      expect(res.body).toContain('feng3d-cts');
+      expect(res.body).toContain('穿透服务器');
+      expect(res.body).toContain('<!DOCTYPE html>');
     });
   });
 

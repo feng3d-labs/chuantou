@@ -12,10 +12,10 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from 'fs';
 import { join } from 'path';
-import { homedir } from 'os';
+import { homedir, platform } from 'os';
 import { request } from 'http';
 import { request as httpsRequest } from 'https';
-import { spawn } from 'child_process';
+import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { start, stop } from './index.js';
 import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
@@ -163,6 +163,29 @@ async function waitForStartup(host: string, port: number, tls: boolean, timeoutM
   return false;
 }
 
+/**
+ * 在浏览器中打开 URL
+ *
+ * 根据操作系统使用相应的命令打开默认浏览器。
+ *
+ * @param url - 需要打开的 URL
+ */
+function openBrowser(url: string): void {
+  const os = platform();
+  try {
+    if (os === 'win32') {
+      execSync(`cmd.exe /c start "" "${url}"`, { stdio: 'ignore' });
+    } else if (os === 'darwin') {
+      execSync(`open "${url}"`, { stdio: 'ignore' });
+    } else {
+      // Linux
+      execSync(`xdg-open "${url}"`, { stdio: 'ignore' });
+    }
+  } catch {
+    // 忽略错误，浏览器打开失败不影响服务
+  }
+}
+
 /** 服务器选项的 CLI 选项定义，供 start 和 _serve 共用 */
 const serverOptions = [
   ['-p, --port <port>', '控制端口', '9000'],
@@ -241,6 +264,7 @@ for (const opt of serverOptions) {
   }
 }
 startCmd.option('--no-boot', '不注册开机自启动');
+startCmd.option('-o, --open', '启动后在浏览器中打开状态页面');
 startCmd.action(async (options) => {
   // 1. 检测是否已在运行
   const existing = readPidFile();
@@ -306,7 +330,16 @@ startCmd.action(async (options) => {
   console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
   console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
-  // 8. 注册开机启动
+  // 8. 打开浏览器
+  if (options.open) {
+    const protocol = tls ? 'https' : 'http';
+    const url = host === '0.0.0.0'
+      ? `${protocol}://127.0.0.1:${controlPort}/`
+      : `${protocol}://${host}:${controlPort}/`;
+    openBrowser(url);
+  }
+
+  // 9. 注册开机启动
   if (options.boot !== false) {
     try {
       registerBoot({
