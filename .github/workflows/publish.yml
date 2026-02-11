@@ -9,6 +9,8 @@ jobs:
   check-version:
     name: Check if version needs publishing
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should-publish: ${{ steps.check.outputs.should_publish }}
       new-version: ${{ steps.check.outputs.version }}
@@ -139,6 +141,13 @@ jobs:
             cat changelog.md
             echo 'EOF'
           } >> $GITHUB_OUTPUT
+
+      - name: Create tag
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a v${{ needs.check-version.outputs.new-version }} -m "Release v${{ needs.check-version.outputs.new-version }}"
+          git push origin v${{ needs.check-version.outputs.new-version }}
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
