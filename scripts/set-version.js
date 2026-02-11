@@ -8,6 +8,7 @@ import chalk from 'chalk';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { execSync } from 'child_process';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,7 +17,7 @@ const packages = [
   { name: 'root', dir: path.join(__dirname, '..'), displayName: chalk.gray('root') },
   { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'packages', 'shared'), displayName: chalk.cyan('@feng3d/chuantou-shared') },
   { name: '@feng3d/cts', dir: path.join(__dirname, '..', 'packages', 'server'), displayName: chalk.blue('@feng3d/cts') },
-  { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'packages', 'client'), displayName: chalk.green('@feng3d/chuantou-client') },
+  { name: '@feng3d/ctc', dir: path.join(__dirname, '..', 'packages', 'client'), displayName: chalk.green('@feng3d/ctc') },
 ];
 
 /**
@@ -63,6 +64,22 @@ function bumpVersion(version, type) {
   }
 }
 
+/**
+ * 执行命令并显示输出
+ */
+function runCommand(command, cwd) {
+  try {
+    const output = execSync(command, {
+      cwd,
+      encoding: 'utf-8',
+      stdio: 'inherit'
+    });
+    return { success: true, output };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+}
+
 const program = new Command();
 
 program
@@ -70,7 +87,10 @@ program
   .description('统一设置所有包的版本号')
   .argument('[version|type]', '版本号 (如 1.0.0) 或升级类型 (major/minor/patch)', 'patch')
   .option('-d, --dry-run', '预览模式，不实际修改')
-  .action((input, options) => {
+  .option('-i, --install', '更新版本后自动运行 npm install')
+  .option('-c, --commit', '更新版本后自动提交到 git')
+  .option('-p, --push', '更新版本后自动推送到远程')
+  .action(async (input, options) => {
     const currentVersion = getPackageVersion(packages[0].dir);
     let newVersion;
     let isBump = false;
@@ -109,6 +129,54 @@ program
       });
       console.log();
       console.log(chalk.green.bold('✅ 所有包版本号已更新!'));
+
+      // 运行 npm install
+      if (options.install) {
+        console.log();
+        console.log(chalk.gray('运行 npm install 更新依赖...'));
+        const rootDir = path.join(__dirname, '..');
+        const result = runCommand('npm install', rootDir);
+        if (result.success) {
+          console.log(chalk.green('✓') + ' 依赖已更新');
+        } else {
+          console.log(chalk.red('✗') + '  npm install 失败');
+          console.log(chalk.gray(result.error));
+          process.exit(1);
+        }
+      }
+
+      // 提交到 git
+      if (options.commit) {
+        console.log();
+        console.log(chalk.gray('提交到 git...'));
+        const rootDir = path.join(__dirname, '..');
+
+        runCommand('git add -A', rootDir);
+        const commitMsg = isBump
+          ? `chore: 升级版本至 v${newVersion}`
+          : `chore: 设置版本为 v${newVersion}`;
+        runCommand(`git commit -m "${commitMsg}"`, rootDir);
+        console.log(chalk.green('✓') + '  已提交');
+      }
+
+      // 推送到远程
+      if (options.push) {
+        console.log();
+        console.log(chalk.gray('推送到远程...'));
+        const rootDir = path.join(__dirname, '..');
+        const result = runCommand('git push', rootDir);
+        if (result.success) {
+          console.log(chalk.green('✓') + '  已推送');
+        } else {
+          console.log(chalk.red('✗') + '  推送失败');
+          console.log(chalk.gray(result.error));
+        }
+      }
+
+      console.log();
+      if (options.install && options.commit) {
+        console.log(chalk.green.bold('✅ 完成! 工作流将被触发'));
+      }
     } else {
       packages.forEach(pkg => {
         console.log(`  ${chalk.yellow('○')} ${pkg.displayName} ${chalk.gray(`→ ${newVersion}`)}`);
