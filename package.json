@@ -17,17 +17,17 @@
     "ai"
   ],
   "workspaces": [
-    "shared",
-    "client",
-    "server"
+    "packages/shared",
+    "packages/client",
+    "packages/server"
   ],
   "files": [
     "SKILL.md"
   ],
   "scripts": {
     "install:all": "npm install",
-    "start:server": "npm run start --workspace=server",
-    "start:client": "npm run start --workspace=client",
+    "start:server": "npm run start --workspace=packages/server",
+    "start:client": "npm run start --workspace=packages/client",
     "build": "npm run build --workspaces",
     "watch": "npm run build && npm run watch --workspaces",
     "test": "vitest run",
@@ -35,7 +35,7 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "version": "node scripts/set-version.js",
-    "clean": "rm -rf node_modules shared/node_modules client/node_modules server/node_modules shared/dist client/dist server/dist"
+    "clean": "rm -rf node_modules packages/shared/node_modules packages/client/node_modules packages/server/node_modules packages/shared/dist packages/client/dist packages/server/dist"
   },
   "author": "",
   "license": "ISC",

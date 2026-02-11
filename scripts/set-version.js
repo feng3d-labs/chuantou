@@ -14,9 +14,9 @@ const __dirname = path.dirname(__filename);
 
 const packages = [
   { name: 'root', dir: path.join(__dirname, '..'), displayName: chalk.gray('root') },
-  { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'shared'), displayName: chalk.cyan('@feng3d/chuantou-shared') },
-  { name: '@feng3d/chuantou-server', dir: path.join(__dirname, '..', 'server'), displayName: chalk.blue('@feng3d/chuantou-server') },
-  { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'client'), displayName: chalk.green('@feng3d/chuantou-client') },
+  { name: '@feng3d/chuantou-shared', dir: path.join(__dirname, '..', 'packages', 'shared'), displayName: chalk.cyan('@feng3d/chuantou-shared') },
+  { name: '@feng3d/chuantou-server', dir: path.join(__dirname, '..', 'packages', 'server'), displayName: chalk.blue('@feng3d/chuantou-server') },
+  { name: '@feng3d/chuantou-client', dir: path.join(__dirname, '..', 'packages', 'client'), displayName: chalk.green('@feng3d/chuantou-client') },
 ];
 
 /**

@@ -58,13 +58,13 @@ jobs:
       matrix:
         package:
           - name: shared
-            path: ./shared
+            path: ./packages/shared
             npm-name: "@feng3d/chuantou-shared"
           - name: client
-            path: ./client
+            path: ./packages/client
             npm-name: "@feng3d/chuantou-client"
           - name: server
-            path: ./server
+            path: ./packages/server
             npm-name: "@feng3d/chuantou-server"
           - name: chuantou
             path: ./
