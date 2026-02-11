@@ -327,6 +327,26 @@ program
       console.log(chalk.yellow(`停止客户端失败: ${err instanceof Error ? err.message : err}`));
     }
 
+    // 清理代理请求目录
+    try {
+      const { readdirSync, unlinkSync, existsSync } = require('fs');
+      const REQUEST_DIR = require('./path').join(require('os').homedir(), '.chuantou', 'proxy-requests');
+      if (existsSync(REQUEST_DIR)) {
+        const files = readdirSync(REQUEST_DIR);
+        for (const file of files) {
+          if (file.endsWith('.json') || file.endsWith('.resp')) {
+            try {
+              unlinkSync(require('./path').join(REQUEST_DIR, file));
+            } catch {
+              // 忽略错误
+            }
+          }
+        }
+      }
+    } catch {
+      // 忽略清理错误
+    }
+
     removePidFile();
     console.log(chalk.green('客户端已停止'));
   });
