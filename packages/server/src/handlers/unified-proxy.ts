@@ -366,14 +366,20 @@ export class UnifiedProxyHandler {
    * 接收客户端处理完请求后返回的 HTTP 响应数据，清除超时定时器并解析对应的待处理 Promise。
    *
    * @param connectionId - 连接唯一标识 ID
-   * @param data - 客户端返回的 HTTP 响应数据
+   * @param data - 客户端返回的原始响应消息对象，包含 statusCode, headers, body 等字段
    */
-  handleClientResponse(connectionId: string, data: HttpResponseData): void {
+  handleClientResponse(connectionId: string, data: any): void {
     const pending = this.pendingResponses.get(connectionId);
     if (pending) {
       clearTimeout(pending.timeout);
       this.pendingResponses.delete(connectionId);
-      pending.resolve(data);
+      // 提取需要的响应字段
+      const responseData: HttpResponseData = {
+        statusCode: data.statusCode || 200,
+        headers: data.headers || {},
+        body: data.body,
+      };
+      pending.resolve(responseData);
     }
   }
 

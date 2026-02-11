@@ -132,11 +132,13 @@ export class ControlHandler {
           break;
 
         case 'http_response':
-          this.handleClientResponse(message.payload.connectionId, message.payload);
+          // 客户端发送的格式: { type: 'http_response', connectionId, statusCode, headers, body }
+          this.handleClientResponse(message.connectionId, message);
           break;
 
         case 'connection_data':
-          this.handleClientData(message.payload.connectionId, Buffer.from(message.payload.data, 'base64'));
+          // 客户端发送的格式: { type: 'connection_data', connectionId, data }
+          this.handleClientData(message.connectionId, Buffer.from(message.data, 'base64'));
           break;
 
         case MessageType.CONNECTION_CLOSE:
@@ -169,7 +171,7 @@ export class ControlHandler {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,
         error: '令牌不能为空',
-      }));
+      }, message.id));
       socket.close();
       return;
     }
@@ -178,7 +180,7 @@ export class ControlHandler {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,
         error: '无效的令牌',
-      }));
+      }, message.id));
       socket.close();
       return;
     }
@@ -194,13 +196,13 @@ export class ControlHandler {
 
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: true,
-      }));
+      }, message.id));
       logger.log(`客户端 ${clientId} 认证成功`);
     } else {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,
         error: '认证失败',
-      }));
+      }, message.id));
       socket.close();
     }
   }

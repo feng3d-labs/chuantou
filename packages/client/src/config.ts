@@ -119,12 +119,11 @@ async function loadConfig(): Promise<ClientConfig> {
   const args = parseArgs();
   let config: ClientConfig = {
     serverUrl: 'ws://localhost:9000',
-    token: 'jidexiugaio',
+    token: 'test-token',
     reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
     maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
     proxies: [
       { remotePort: 8080, localPort: 3000, localHost: 'localhost' },
-      { remotePort: 8081, localPort: 3001, localHost: 'localhost' },
     ],
   };
 
