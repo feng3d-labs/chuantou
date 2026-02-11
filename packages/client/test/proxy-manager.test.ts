@@ -11,10 +11,26 @@ import { MessageType, createMessage, ProxyConfig } from '@feng3d/chuantou-shared
 
 // Mock UnifiedHandler
 vi.mock('../src/handlers/unified-handler.js', () => ({
-  UnifiedHandler: vi.fn().mockImplementation(() => ({
-    on: vi.fn(),
-    destroy: vi.fn(),
-  })),
+  UnifiedHandler: vi.fn().mockImplementation(() => {
+    const callbacks: Record<string, (...args: any[]) => void> = {};
+    const emitter = {
+      on: vi.fn((event: string, callback: (...args: any[]) => void) => {
+        callbacks[event] = callback;
+      }),
+      emit: vi.fn((event: string, ...args: any[]) => {
+        if (callbacks[event]) {
+          callbacks[event](...args);
+        }
+      }),
+      destroy: vi.fn(),
+      triggerError: (error: Error) => {
+        if (callbacks['error']) {
+          callbacks['error'](error);
+        }
+      },
+    };
+    return emitter;
+  }),
 }));
 
 describe('ProxyManager', () => {
@@ -101,6 +117,32 @@ describe('ProxyManager', () => {
       await proxyManager.registerProxy(proxyConfig);
       // Handler should be created (verified by mock being called)
       expect(controller['sendRequest']).toHaveBeenCalled();
+    });
+
+    it('should handle handler error events', async () => {
+      vi.spyOn(controller, 'sendRequest').mockResolvedValue({
+        type: MessageType.REGISTER_RESP,
+        payload: { success: true, remoteUrl: 'http://localhost:8080' },
+      });
+
+      const proxyConfig: ProxyConfig = {
+        remotePort: 8080,
+        localPort: 3000,
+        localHost: 'localhost',
+      };
+
+      await proxyManager.registerProxy(proxyConfig);
+
+      // 验证处理器已被创建（通过检查 handlers 映射）
+      expect((proxyManager as any).handlers.size).toBeGreaterThan(0);
+
+      // 验证 error 事件处理程序已设置
+      const handler = (proxyManager as any).handlers.get(8080);
+      expect(handler).toBeDefined();
+      expect(typeof handler.on).toBe('function');
+
+      // 触发 error 事件以测试错误处理逻辑（覆盖第 83 行）
+      handler.triggerError(new Error('测试错误'));
     });
   });
 

@@ -85,6 +85,18 @@ describe('Config', () => {
         { remotePort: 8080, localPort: 3000, localHost: 'localhost' },
       ]);
     });
+
+    it('should parse --config argument', async () => {
+      vi.mocked(fs.readFile).mockResolvedValueOnce(JSON.stringify({
+        serverUrl: 'ws://config.com:9000',
+        token: 'config-token',
+      }));
+
+      process.argv = ['node', 'cli.js', '--config', '/custom/config.json'];
+      const config = await Config.load();
+      expect(config.serverUrl).toBe('ws://config.com:9000');
+      expect(config.token).toBe('config-token');
+    });
   });
 
   describe('loadFromFile', () => {

@@ -375,9 +375,81 @@ describe('AdminServer', () => {
       expect(mockRes.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
       expect(mockRes.end).toHaveBeenCalledWith(expect.stringContaining('无效的端口号'));
     });
+
+    it('should handle error when removeProxyCallback throws', async () => {
+      const failingRemoveProxy = vi.fn().mockRejectedValue(new Error('删除失败'));
+
+      let requestHandler: ((req: any, res: any) => void) | null = null;
+
+      mockServer.listen = vi.fn((port: number, host: string, cb: () => void) => {
+        cb();
+        return mockServer;
+      });
+      mockServer.on = vi.fn();
+
+      vi.mocked(createServer).mockImplementation((handler: any) => {
+        requestHandler = handler;
+        return mockServer;
+      });
+
+      const adminServer = new AdminServer(
+        { port: 9001, host: '127.0.0.1' },
+        getStatusCallback,
+        addProxyCallback,
+        failingRemoveProxy
+      );
+
+      const mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
+
+      requestHandler!(
+        { url: '/_ctc/proxies/8080', method: 'DELETE' },
+        mockRes
+      );
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+      expect(mockRes.end).toHaveBeenCalledWith(expect.stringContaining('删除失败'));
+    });
   });
 
   describe('handleRequest - page', () => {
+    it('should return HTML page on GET / when url is undefined', () => {
+      let requestHandler: ((req: any, res: any) => void) | null = null;
+
+      mockServer.listen = vi.fn((port: number, host: string, cb: () => void) => {
+        cb();
+        return mockServer;
+      });
+      mockServer.on = vi.fn();
+
+      vi.mocked(createServer).mockImplementation((handler: any) => {
+        requestHandler = handler;
+        return mockServer;
+      });
+
+      const adminServer = new AdminServer(
+        { port: 9001, host: '127.0.0.1' },
+        getStatusCallback,
+        addProxyCallback,
+        removeProxyCallback
+      );
+
+      const mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
+
+      // 模拟请求 - url 为 undefined 时应该默认为 '/'
+      requestHandler!({ url: undefined, method: 'GET' }, mockRes);
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      expect(mockRes.end).toHaveBeenCalledWith(expect.stringContaining('<!DOCTYPE html>'));
+    });
+
     it('should return HTML page on GET /', () => {
       let requestHandler: ((req: any, res: any) => void) | null = null;
 
