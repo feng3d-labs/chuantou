@@ -159,6 +159,7 @@ export class ControlHandler {
 
         default:
           logger.warn(`未知的消息类型: ${msgType}`);
+          this.sendError(socket, `未知的消息类型: ${msgType}`);
       }
     } catch (error) {
       logger.error(`解析来自 ${clientId} 的消息时出错:`, error);
