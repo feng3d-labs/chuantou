@@ -9,6 +9,8 @@ jobs:
   check-version:
     name: Check if version needs publishing
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       should-publish: ${{ steps.check.outputs.should_publish }}
       new-version: ${{ steps.check.outputs.version }}
@@ -116,65 +118,70 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Generate changelog
-        id: changelog
+      - name: Create tag and changelog
         run: |
+          VERSION="${{ needs.check-version.outputs.new-version }}"
+
           # 获取上一个版本标签
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
 
+          # 生成 changelog
           if [ -z "$PREV_TAG" ]; then
-            # 如果没有上一个标签，获取最近 10 条提交
             echo "## 更新内容" > changelog.md
             echo "" >> changelog.md
             git log -10 --pretty=format:"- %s" >> changelog.md
           else
-            # 获取自上一个标签以来的所有提交
             echo "## 自 ${PREV_TAG} 以来的更新" > changelog.md
             echo "" >> changelog.md
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s" >> changelog.md
           fi
 
+          # 添加发布包信息到 changelog
           {
-            echo 'changelog<<EOF'
-            cat changelog.md
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+            echo ""
+            echo "---"
+            echo ""
+            echo "## 发布包"
+            echo ""
+            echo "- @feng3d/chuantou-shared@${VERSION}"
+            echo "- @feng3d/ctc@${VERSION} (客户端)"
+            echo "- @feng3d/cts@${VERSION} (服务端)"
+            echo ""
+            echo "## 安装 CLI"
+            echo ""
+            echo '```bash'
+            echo "# 服务端"
+            echo "npm install -g @feng3d/cts"
+            echo ""
+            echo "# 客户端"
+            echo "npm install -g @feng3d/ctc"
+            echo '```'
+            echo ""
+            echo "## 使用命令"
+            echo ""
+            echo '```bash'
+            echo "# 服务端"
+            echo "npx @feng3d/cts"
+            echo ""
+            echo "# 客户端"
+            echo "npx @feng3d/ctc"
+            echo '```'
+          } >> changelog.md
+
+          # 配置 git
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # 创建并推送标签
+          git tag -a "v${VERSION}" -m "Release v${VERSION}"
+          git push origin "v${VERSION}"
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
           tag_name: v${{ needs.check-version.outputs.new-version }}
           name: Release v${{ needs.check-version.outputs.new-version }}
-          body: |
-            ${{ steps.changelog.outputs.changelog }}
-
-            ---
-
-            ## 发布包
-
-            - @feng3d/chuantou-shared@${{ needs.check-version.outputs.new-version }}
-            - @feng3d/ctc@${{ needs.check-version.outputs.new-version }} (客户端)
-            - @feng3d/cts@${{ needs.check-version.outputs.new-version }} (服务端)
-
-            ## 安装 CLI
-
-            ```bash
-            # 服务端
-            npm install -g @feng3d/cts
-
-            # 客户端
-            npm install -g @feng3d/ctc
-            ```
-
-            ## 使用命令
-
-            ```bash
-            # 服务端
-            npx @feng3d/cts
-
-            # 客户端
-            npx @feng3d/ctc
-            ```
+          body_path: changelog.md
           draft: false
           prerelease: false
         env:
