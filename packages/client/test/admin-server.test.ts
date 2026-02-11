@@ -154,8 +154,152 @@ describe('AdminServer', () => {
     });
   });
 
-  // POST /_ctc/proxies 测试需要模拟流式请求，较为复杂
-  // 这些测试主要通过集成测试覆盖
+  describe('handleRequest - add proxy API', () => {
+    it('should handle POST /_ctc/proxies with valid data', async () => {
+      let requestHandler: ((req: any, res: any) => void) | null = null;
+
+      mockServer.listen = vi.fn((port: number, host: string, cb: () => void) => {
+        cb();
+        return mockServer;
+      });
+      mockServer.on = vi.fn();
+
+      vi.mocked(createServer).mockImplementation((handler: any) => {
+        requestHandler = handler;
+        return mockServer;
+      });
+
+      const adminServer = new AdminServer(
+        { port: 9001, host: '127.0.0.1' },
+        getStatusCallback,
+        addProxyCallback,
+        removeProxyCallback
+      );
+
+      const newProxy: ProxyConfig = { remotePort: 8081, localPort: 3001, localHost: 'localhost' };
+      const mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
+
+      // 模拟带 req.on 的请求对象
+      const mockReq = {
+        url: '/_ctc/proxies',
+        method: 'POST',
+        on: vi.fn((event: string, callback: (data?: any) => void) => {
+          if (event === 'data') {
+            callback(JSON.stringify(newProxy));
+          } else if (event === 'end') {
+            // 异步处理结束
+            setTimeout(() => callback(), 0);
+          }
+        }),
+      };
+
+      requestHandler!(mockReq, mockRes);
+
+      // 等待异步处理
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(addProxyCallback).toHaveBeenCalledWith(newProxy);
+      expect(mockRes.writeHead).toHaveBeenCalledWith(200, { 'Content-Type': 'application/json' });
+      expect(mockRes.end).toHaveBeenCalledWith(JSON.stringify({ success: true }));
+    });
+
+    it('should handle POST /_ctc/proxies with invalid JSON', async () => {
+      let requestHandler: ((req: any, res: any) => void) | null = null;
+
+      mockServer.listen = vi.fn((port: number, host: string, cb: () => void) => {
+        cb();
+        return mockServer;
+      });
+      mockServer.on = vi.fn();
+
+      vi.mocked(createServer).mockImplementation((handler: any) => {
+        requestHandler = handler;
+        return mockServer;
+      });
+
+      const adminServer = new AdminServer(
+        { port: 9001, host: '127.0.0.1' },
+        getStatusCallback,
+        addProxyCallback,
+        removeProxyCallback
+      );
+
+      const mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
+
+      const mockReq = {
+        url: '/_ctc/proxies',
+        method: 'POST',
+        on: vi.fn((event: string, callback: (data?: any) => void) => {
+          if (event === 'data') {
+            callback('invalid json');
+          } else if (event === 'end') {
+            setTimeout(() => callback(), 0);
+          }
+        }),
+      };
+
+      requestHandler!(mockReq, mockRes);
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+    });
+
+    it('should handle POST /_ctc/proxies when addProxyCallback throws', async () => {
+      const failingAddProxy = vi.fn().mockRejectedValue(new Error('Port already in use'));
+
+      let requestHandler: ((req: any, res: any) => void) | null = null;
+
+      mockServer.listen = vi.fn((port: number, host: string, cb: () => void) => {
+        cb();
+        return mockServer;
+      });
+      mockServer.on = vi.fn();
+
+      vi.mocked(createServer).mockImplementation((handler: any) => {
+        requestHandler = handler;
+        return mockServer;
+      });
+
+      const adminServer = new AdminServer(
+        { port: 9001, host: '127.0.0.1' },
+        getStatusCallback,
+        failingAddProxy,
+        removeProxyCallback
+      );
+
+      const newProxy: ProxyConfig = { remotePort: 8081, localPort: 3001, localHost: 'localhost' };
+      const mockRes = {
+        writeHead: vi.fn(),
+        end: vi.fn(),
+      };
+
+      const mockReq = {
+        url: '/_ctc/proxies',
+        method: 'POST',
+        on: vi.fn((event: string, callback: (data?: any) => void) => {
+          if (event === 'data') {
+            callback(JSON.stringify(newProxy));
+          } else if (event === 'end') {
+            setTimeout(() => callback(), 0);
+          }
+        }),
+      };
+
+      requestHandler!(mockReq, mockRes);
+
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      expect(mockRes.writeHead).toHaveBeenCalledWith(400, { 'Content-Type': 'application/json' });
+      expect(mockRes.end).toHaveBeenCalledWith(expect.stringContaining('Port already in use'));
+    });
+  });
 
   describe('handleRequest - delete proxy API', () => {
     it('should call removeProxyCallback on DELETE /_ctc/proxies/:port', async () => {
