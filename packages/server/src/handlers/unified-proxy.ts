@@ -7,7 +7,7 @@
 import { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
-import { MessageType, createMessage, NewConnectionMessage, ConnectionCloseMessage, HttpResponseData } from '@feng3d/chuantou-shared';
+import { MessageType, createMessage, NewConnectionMessage, ConnectionCloseMessage, HttpResponseData, logger } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
 
 /**
@@ -86,12 +86,12 @@ export class UnifiedProxyHandler {
     });
 
     server.on('error', (error) => {
-      console.error(`代理在端口 ${port} 上发生错误:`, error);
+      logger.error(`代理在端口 ${port} 上发生错误:`, error);
     });
 
     return new Promise<void>((resolve, reject) => {
       server.listen(port, () => {
-        console.log(`代理正在端口 ${port} 上监听（HTTP + WebSocket），绑定客户端 ${clientId}`);
+        logger.log(`代理正在端口 ${port} 上监听（HTTP + WebSocket），绑定客户端 ${clientId}`);
         this.proxies.set(port, server);
         resolve();
       });
@@ -128,7 +128,7 @@ export class UnifiedProxyHandler {
     // 记录连接
     this.sessionManager.addConnection(clientId, connectionId, req.socket.remoteAddress || '', 'http');
 
-    console.log(`HTTP 请求: ${req.method} ${req.url} -> 客户端 ${clientId} (${connectionId})`);
+    logger.log(`HTTP 请求: ${req.method} ${req.url} -> 客户端 ${clientId} (${connectionId})`);
 
     try {
       // 构建请求头
@@ -171,9 +171,9 @@ export class UnifiedProxyHandler {
         res.end();
       }
 
-      console.log(`HTTP 响应: ${response.statusCode}，连接 ${connectionId}`);
+      logger.log(`HTTP 响应: ${response.statusCode}，连接 ${connectionId}`);
     } catch (error) {
-      console.error(`处理 HTTP 请求 ${connectionId} 时出错:`, error);
+      logger.error(`处理 HTTP 请求 ${connectionId} 时出错:`, error);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
         res.end('服务器内部错误');
@@ -208,7 +208,7 @@ export class UnifiedProxyHandler {
     // 记录连接
     this.sessionManager.addConnection(clientId, connectionId, req.socket.remoteAddress || '', 'websocket');
 
-    console.log(`WebSocket 升级: ${req.url} -> 客户端 ${clientId} (${connectionId})`);
+    logger.log(`WebSocket 升级: ${req.url} -> 客户端 ${clientId} (${connectionId})`);
 
     // 构建 WebSocket 服务器处理此连接
     const wsServer = new WebSocketServer({ noServer: true });
@@ -237,7 +237,7 @@ export class UnifiedProxyHandler {
       return;
     }
 
-    console.log(`WebSocket 连接已建立: ${req.url} (${connectionId})`);
+    logger.log(`WebSocket 连接已建立: ${req.url} (${connectionId})`);
 
     // 存储用户 WebSocket 引用
     this.userConnections.set(connectionId, userWs);
@@ -267,14 +267,14 @@ export class UnifiedProxyHandler {
 
     // 处理来自用户关闭
     userWs.on('close', (code: number, reason: Buffer) => {
-      console.log(`用户 WebSocket 已关闭: ${connectionId} (${code})`);
+      logger.log(`用户 WebSocket 已关闭: ${connectionId} (${code})`);
       this.notifyClientClose(clientId, connectionId, code);
       this.cleanupConnection(connectionId);
     });
 
     // 处理错误
     userWs.on('error', (error) => {
-      console.error(`用户 WebSocket 错误 ${connectionId}:`, error);
+      logger.error(`用户 WebSocket 错误 ${connectionId}:`, error);
       this.cleanupConnection(connectionId);
     });
   }
@@ -433,7 +433,7 @@ export class UnifiedProxyHandler {
     if (server) {
       return new Promise<void>((resolve) => {
         server.close(() => {
-          console.log(`代理已在端口 ${port} 上停止`);
+          logger.log(`代理已在端口 ${port} 上停止`);
           this.proxies.delete(port);
           resolve();
         });

@@ -11,3 +11,5 @@
 export * from './messages.js';
 /** 导出协议常量、错误码、默认配置及各类配置接口 */
 export * from './protocol.js';
+/** 导出日志工具 */
+export * from './logger.js';

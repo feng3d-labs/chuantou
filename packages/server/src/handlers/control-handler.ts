@@ -13,6 +13,7 @@ import {
   HeartbeatMessage,
   UnregisterMessage,
   ServerConfig,
+  logger,
 } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
 import { UnifiedProxyHandler } from './unified-proxy.js';
@@ -62,32 +63,32 @@ export class ControlHandler {
   handleConnection(socket: WebSocket): void {
     const clientId = this.sessionManager.createSession(socket);
 
-    console.log(`新的控制连接来自客户端: ${clientId}`);
+    logger.log(`新的控制连接来自客户端: ${clientId}`);
 
     // 设置消息处理器
     socket.on('message', (data: Buffer) => {
       this.handleMessage(clientId, socket, data).catch((error) => {
-        console.error(`处理来自 ${clientId} 的消息时出错:`, error);
+        logger.error(`处理来自 ${clientId} 的消息时出错:`, error);
         this.sendError(socket, `内部错误: ${error.message}`);
       });
     });
 
     // 设置关闭处理器
     socket.on('close', () => {
-      console.log(`控制连接已关闭: ${clientId}`);
+      logger.log(`控制连接已关闭: ${clientId}`);
       this.handleDisconnect(clientId);
     });
 
     // 设置错误处理器
     socket.on('error', (error) => {
-      console.error(`客户端 ${clientId} 的 Socket 错误:`, error);
+      logger.error(`客户端 ${clientId} 的 Socket 错误:`, error);
     });
 
     // 设置认证超时
     const authTimeout = setTimeout(() => {
       const clientInfo = this.sessionManager.getClientInfo(clientId);
       if (clientInfo && !clientInfo.authenticated) {
-        console.log(`客户端 ${clientId} 认证超时`);
+        logger.log(`客户端 ${clientId} 认证超时`);
         socket.close();
       }
     }, 30000); // 30秒认证超时
@@ -111,7 +112,7 @@ export class ControlHandler {
       const message = JSON.parse(data.toString());
       const msgType = message.type;
 
-      console.log(`收到来自 ${clientId} 的消息: ${msgType}`);
+      logger.log(`收到来自 ${clientId} 的消息: ${msgType}`);
 
       switch (msgType) {
         case MessageType.AUTH:
@@ -143,10 +144,10 @@ export class ControlHandler {
           break;
 
         default:
-          console.warn(`未知的消息类型: ${msgType}`);
+          logger.warn(`未知的消息类型: ${msgType}`);
       }
     } catch (error) {
-      console.error(`解析来自 ${clientId} 的消息时出错:`, error);
+      logger.error(`解析来自 ${clientId} 的消息时出错:`, error);
       this.sendError(socket, '无效的消息格式');
     }
   }
@@ -194,7 +195,7 @@ export class ControlHandler {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: true,
       }));
-      console.log(`客户端 ${clientId} 认证成功`);
+      logger.log(`客户端 ${clientId} 认证成功`);
     } else {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,
@@ -266,7 +267,7 @@ export class ControlHandler {
         remoteUrl: `http://${this.config.host}:${remotePort}`,
       }, message.id));
 
-      console.log(`客户端 ${clientId} 注册了代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
+      logger.log(`客户端 ${clientId} 注册了代理: 端口 ${remotePort} -> ${localHost || 'localhost'}:${localPort}`);
     } catch (error) {
       // 启动代理失败，回滚端口注册
       this.sessionManager.unregisterPort(clientId, remotePort);
@@ -310,7 +311,7 @@ export class ControlHandler {
     // 注销端口
     const unregistered = this.sessionManager.unregisterPort(clientId, remotePort);
     if (unregistered) {
-      console.log(`客户端 ${clientId} 注销了端口 ${remotePort}`);
+      logger.log(`客户端 ${clientId} 注销了端口 ${remotePort}`);
     }
   }
 
@@ -342,7 +343,7 @@ export class ControlHandler {
     if (clientInfo) {
       // 停止所有代理
       for (const port of clientInfo.registeredPorts) {
-        this.proxyHandler.stopProxy(port).catch(console.error);
+        this.proxyHandler.stopProxy(port).catch(logger.error);
       }
     }
     this.sessionManager.removeSession(clientId);

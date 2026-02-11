@@ -13,7 +13,7 @@ import { request as httpRequest } from 'http';
 import { request as httpsRequest } from 'https';
 import { URL } from 'url';
 import { Controller } from '../controller.js';
-import { ProxyConfig, HttpHeaders } from '@feng3d/chuantou-shared';
+import { ProxyConfig, HttpHeaders, logger } from '@feng3d/chuantou-shared';
 import {
   MessageType,
   createMessage,
@@ -111,7 +111,7 @@ export class UnifiedHandler extends EventEmitter {
   private async handleHttpConnection(msg: NewConnectionMessage): Promise<void> {
     const { connectionId, method, url, headers, body } = msg.payload;
 
-    console.log(`HTTP 请求: ${method} ${url} (${connectionId})`);
+    logger.log(`HTTP 请求: ${method} ${url} (${connectionId})`);
 
     // 构建本地 URL
     const localUrl = `http://${this.config.localHost || 'localhost'}:${this.config.localPort}${url}`;
@@ -178,7 +178,7 @@ export class UnifiedHandler extends EventEmitter {
   private handleWebSocketConnection(msg: NewConnectionMessage): void {
     const { connectionId, url, wsHeaders } = msg.payload;
 
-    console.log(`WebSocket 连接: ${url} (${connectionId})`);
+    logger.log(`WebSocket 连接: ${url} (${connectionId})`);
 
     // 构建本地 WebSocket URL
     const localUrl = `ws://${this.config.localHost || 'localhost'}:${this.config.localPort}${url}`;
@@ -189,7 +189,7 @@ export class UnifiedHandler extends EventEmitter {
     });
 
     localWs.on('open', () => {
-      console.log(`本地 WebSocket 已连接: ${connectionId}`);
+      logger.log(`本地 WebSocket 已连接: ${connectionId}`);
     });
 
     localWs.on('message', (data: Buffer) => {
@@ -197,13 +197,13 @@ export class UnifiedHandler extends EventEmitter {
     });
 
     localWs.on('close', (code: number, reason: Buffer) => {
-      console.log(`本地 WebSocket 已关闭: ${connectionId} (${code})`);
+      logger.log(`本地 WebSocket 已关闭: ${connectionId} (${code})`);
       this.notifyServerClose(connectionId, code);
       this.cleanupWsConnection(connectionId);
     });
 
     localWs.on('error', (error) => {
-      console.error(`本地 WebSocket 错误 ${connectionId}:`, error.message);
+      logger.error(`本地 WebSocket 错误 ${connectionId}:`, error.message);
       this.notifyServerClose(connectionId, 1011);
       this.cleanupWsConnection(connectionId);
     });

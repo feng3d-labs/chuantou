@@ -7,7 +7,7 @@
 import { WebSocketServer } from 'ws';
 import { createServer as createHttpServer, IncomingMessage, ServerResponse } from 'http';
 import { createServer as createHttpsServer } from 'https';
-import { ServerConfig, DEFAULT_CONFIG } from '@feng3d/chuantou-shared';
+import { ServerConfig, DEFAULT_CONFIG, logger } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
 import { UnifiedProxyHandler } from './handlers/unified-proxy.js';
@@ -253,7 +253,7 @@ const STATUS_HTML = `<!DOCTYPE html>
           \`).join('');
         }
       } catch (e) {
-        console.error('获取状态失败:', e);
+        logger.error('获取状态失败:', e);
       }
     }
 
@@ -371,19 +371,19 @@ export class ForwardServer {
     });
 
     this.httpServer.on('error', (error) => {
-      console.error('服务器错误:', error);
+      logger.error('服务器错误:', error);
     });
 
     this.httpServer.listen(this.config.controlPort, this.config.host, () => {
       const protocol = this.config.tls ? 'https/wss' : 'http/ws';
-      console.log(`控制服务器正在监听 ${protocol}://${this.config.host}:${this.config.controlPort}`);
+      logger.log(`控制服务器正在监听 ${protocol}://${this.config.host}:${this.config.controlPort}`);
     });
 
     this.startedAt = Date.now();
 
     this.statsInterval = setInterval(() => {
       const stats = this.sessionManager.getStats();
-      console.log(`统计: ${stats.authenticatedClients} 个已认证客户端, ${stats.totalPorts} 个端口, ${stats.totalConnections} 个连接`);
+      logger.log(`统计: ${stats.authenticatedClients} 个已认证客户端, ${stats.totalPorts} 个端口, ${stats.totalConnections} 个连接`);
     }, 60000);
   }
 
@@ -446,7 +446,7 @@ export class ForwardServer {
    * @returns 服务器完全停止后的 Promise
    */
   async stop(): Promise<void> {
-    console.log('正在停止服务器...');
+    logger.log('正在停止服务器...');
 
     if (this.statsInterval) {
       clearInterval(this.statsInterval);
@@ -463,7 +463,7 @@ export class ForwardServer {
 
     this.sessionManager.clear();
 
-    console.log('服务器已停止');
+    logger.log('服务器已停止');
   }
 
   /**

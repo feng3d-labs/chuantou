@@ -20,6 +20,7 @@ import {
   NewConnectionMessage,
   ConnectionCloseMessage,
   ConnectionErrorMessage,
+  logger,
 } from '@feng3d/chuantou-shared';
 import { Config } from './config.js';
 
@@ -38,7 +39,7 @@ import { Config } from './config.js';
  * @example
  * ```typescript
  * const controller = new Controller(config);
- * controller.on('authenticated', () => console.log('已认证'));
+ * controller.on('authenticated', () => logger.log('已认证'));
  * await controller.connect();
  * ```
  */
@@ -92,12 +93,12 @@ export class Controller extends EventEmitter {
    */
   async connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-      console.log(`正在连接 ${this.config.serverUrl}...`);
+      logger.log(`正在连接 ${this.config.serverUrl}...`);
 
       this.ws = new WebSocket(this.config.serverUrl);
 
       this.ws.on('open', async () => {
-        console.log('已连接到服务器');
+        logger.log('已连接到服务器');
         this.connected = true;
         this.reconnectAttempts = 0;
         this.emit('connected');
@@ -117,7 +118,7 @@ export class Controller extends EventEmitter {
       });
 
       this.ws.on('close', () => {
-        console.log('连接已关闭');
+        logger.log('连接已关闭');
         this.connected = false;
         this.authenticated = false;
         this.stopHeartbeat();
@@ -126,7 +127,7 @@ export class Controller extends EventEmitter {
       });
 
       this.ws.on('error', (error) => {
-        console.error('WebSocket 错误:', error.message);
+        logger.error('WebSocket 错误:', error.message);
         if (!this.connected) {
           reject(error);
         }
@@ -142,7 +143,7 @@ export class Controller extends EventEmitter {
    * @throws {Error} 认证失败时抛出错误，包含服务器返回的错误信息
    */
   private async authenticate(): Promise<void> {
-    console.log('正在认证...');
+    logger.log('正在认证...');
 
     const authMsg: AuthMessage = createMessage(MessageType.AUTH, {
       token: this.config.token,
@@ -154,7 +155,7 @@ export class Controller extends EventEmitter {
     }
 
     this.authenticated = true;
-    console.log('认证成功');
+    logger.log('认证成功');
     this.emit('authenticated');
   }
 
@@ -198,20 +199,20 @@ export class Controller extends EventEmitter {
     }
 
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
-      console.error('已达到最大重连次数');
+      logger.error('已达到最大重连次数');
       this.emit('maxReconnectAttemptsReached');
       return;
     }
 
     const delay = this.calculateReconnectDelay();
-    console.log(`将在 ${delay}ms 后重连... (第 ${this.reconnectAttempts + 1}/${this.config.maxReconnectAttempts} 次尝试)`);
+    logger.log(`将在 ${delay}ms 后重连... (第 ${this.reconnectAttempts + 1}/${this.config.maxReconnectAttempts} 次尝试)`);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.reconnectAttempts++;
       this.connect().catch((error) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('重连失败:', errorMessage);
+        logger.error('重连失败:', errorMessage);
         this.scheduleReconnect();
       });
     }, delay);
@@ -268,11 +269,11 @@ export class Controller extends EventEmitter {
           break;
 
         default:
-          console.warn(`未知消息类型: ${msgType}`);
+          logger.warn(`未知消息类型: ${msgType}`);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('处理消息时出错:', errorMessage);
+      logger.error('处理消息时出错:', errorMessage);
     }
   }
 
@@ -330,7 +331,7 @@ export class Controller extends EventEmitter {
       this.ws.send(JSON.stringify(message));
       return true;
     }
-    console.error('无法发送消息: 未连接');
+    logger.error('无法发送消息: 未连接');
     return false;
   }
 

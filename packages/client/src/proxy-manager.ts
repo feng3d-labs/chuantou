@@ -9,7 +9,7 @@
  */
 
 import { Controller } from './controller.js';
-import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { ProxyConfig, logger } from '@feng3d/chuantou-shared';
 import { UnifiedHandler } from './handlers/unified-handler.js';
 import { MessageType, createMessage, RegisterMessage, UnregisterMessage, RegisterRespMessage } from '@feng3d/chuantou-shared';
 
@@ -58,7 +58,7 @@ export class ProxyManager {
    * @throws {Error} 注册失败时抛出错误，包含服务器返回的错误信息
    */
   async registerProxy(config: ProxyConfig): Promise<void> {
-    console.log(`正在注册代理: :${config.remotePort} -> ${config.localHost || 'localhost'}:${config.localPort}`);
+    logger.log(`正在注册代理: :${config.remotePort} -> ${config.localHost || 'localhost'}:${config.localPort}`);
 
     // 发送注册消息
     const registerMsg: RegisterMessage = createMessage(MessageType.REGISTER, {
@@ -73,14 +73,14 @@ export class ProxyManager {
       throw new Error(`注册代理失败: ${response.payload.error}`);
     }
 
-    console.log(`代理已注册: ${response.payload.remoteUrl}`);
+    logger.log(`代理已注册: ${response.payload.remoteUrl}`);
 
     // 创建统一的处理器（同时支持 HTTP 和 WebSocket）
     const handler = new UnifiedHandler(this.controller, config);
 
     // 设置处理器事件
     handler.on('error', (error) => {
-      console.error(`端口 ${config.remotePort} 的处理器错误:`, error);
+      logger.error(`端口 ${config.remotePort} 的处理器错误:`, error);
     });
 
     this.handlers.set(config.remotePort, handler);
@@ -105,7 +105,7 @@ export class ProxyManager {
     });
 
     await this.controller.sendRequest(unregisterMsg);
-    console.log(`代理已注销: 端口 ${remotePort}`);
+    logger.log(`代理已注销: 端口 ${remotePort}`);
   }
 
   /**
@@ -129,7 +129,7 @@ export class ProxyManager {
    * 销毁所有处理器并清空处理器映射表。
    */
   private onDisconnected(): void {
-    console.log('连接丢失，正在停止所有处理器...');
+    logger.log('连接丢失，正在停止所有处理器...');
     for (const handler of this.handlers.values()) {
       handler.destroy();
     }

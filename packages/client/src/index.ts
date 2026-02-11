@@ -12,7 +12,7 @@ import { Config } from './config.js';
 import { Controller } from './controller.js';
 import { ProxyManager } from './proxy-manager.js';
 import { AdminServer, ClientStatus } from './admin-server.js';
-import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { ProxyConfig, logger } from '@feng3d/chuantou-shared';
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -38,7 +38,7 @@ export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
  * @returns 无返回值的 Promise
  */
 async function main(): Promise<void> {
-  console.log('正在启动穿透客户端...');
+  logger.log('正在启动穿透客户端...');
 
   // 加载配置（从用户目录 .chuantou/client.json 或命令行参数）
   const config = await Config.load();
@@ -46,11 +46,11 @@ async function main(): Promise<void> {
   // 验证配置
   config.validate();
 
-  console.log('配置已加载:');
-  console.log(`  服务器地址: ${config.serverUrl}`);
-  console.log(`  代理数量: 已配置 ${config.proxies.length} 个`);
+  logger.log('配置已加载:');
+  logger.log(`  服务器地址: ${config.serverUrl}`);
+  logger.log(`  代理数量: 已配置 ${config.proxies.length} 个`);
   for (const proxy of config.proxies) {
-    console.log(`    - :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
+    logger.log(`    - :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
   }
 
   // 记录启动时间
@@ -98,15 +98,15 @@ async function main(): Promise<void> {
 
   // 监听控制器事件
   controller.on('connected', () => {
-    console.log('已连接到服务器');
+    logger.log('已连接到服务器');
   });
 
   controller.on('disconnected', () => {
-    console.log('已断开与服务器的连接');
+    logger.log('已断开与服务器的连接');
   });
 
   controller.on('authenticated', async () => {
-    console.log('已认证，正在注册代理...');
+    logger.log('已认证，正在注册代理...');
 
     // 注册所有代理
     for (const proxyConfig of config.proxies) {
@@ -115,7 +115,7 @@ async function main(): Promise<void> {
         // 代理配置已在初始化时添加到 registeredProxies
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error(`注册代理失败: ${errorMessage}`);
+        logger.error(`注册代理失败: ${errorMessage}`);
       }
     }
 
@@ -123,18 +123,18 @@ async function main(): Promise<void> {
     try {
       await adminServer.start();
     } catch (error) {
-      console.error('管理页面启动失败:', error);
+      logger.error('管理页面启动失败:', error);
     }
   });
 
   controller.on('maxReconnectAttemptsReached', () => {
-    console.error('已达到最大重连次数，正在退出...');
+    logger.error('已达到最大重连次数，正在退出...');
     process.exit(1);
   });
 
   // 优雅关闭
   const shutdown = async () => {
-    console.log('\n正在关闭...');
+    logger.log('\n正在关闭...');
     await adminServer.stop();
     await proxyManager.destroy();
     controller.disconnect();
@@ -149,7 +149,7 @@ async function main(): Promise<void> {
     await controller.connect();
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('连接服务器失败:', errorMessage);
+    logger.error('连接服务器失败:', errorMessage);
     process.exit(1);
   }
 }
@@ -159,7 +159,7 @@ const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g
 
 if (isMainModule) {
   main().catch((error) => {
-    console.error('启动客户端失败:', error);
+    logger.error('启动客户端失败:', error);
     process.exit(1);
   });
 }
