@@ -130,9 +130,20 @@ export class ControlHandler {
           await this.handleHeartbeat(clientId, socket, message as HeartbeatMessage);
           break;
 
+        case 'http_response':
+          this.handleClientResponse(message.payload.connectionId, message.payload);
+          break;
+
+        case 'connection_data':
+          this.handleClientData(message.payload.connectionId, Buffer.from(message.payload.data, 'base64'));
+          break;
+
+        case MessageType.CONNECTION_CLOSE:
+          this.handleClientClose(message.payload.connectionId);
+          break;
+
         default:
           console.warn(`未知的消息类型: ${msgType}`);
-          this.sendError(socket, `未知的消息类型: ${msgType}`);
       }
     } catch (error) {
       console.error(`解析来自 ${clientId} 的消息时出错:`, error);
