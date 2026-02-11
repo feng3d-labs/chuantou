@@ -2,7 +2,7 @@
  * @module boot
  * @description 开机自启动管理模块。
  * 提供跨平台的开机自启动注册、注销和状态查询功能。
- * Windows 使用 schtasks 计划任务，Linux 使用 systemd --user 用户级服务。
+ * Windows 使用注册表 Run 键 + VBS 静默启动，Linux 使用 systemd --user 用户级服务。
  */
 
 import { execSync } from 'child_process';
@@ -61,28 +61,44 @@ function removeStartupInfo(): void {
   }
 }
 
-// ====== Windows 实现（schtasks）======
+// ====== Windows 实现（注册表 Run 键）======
+
+/** Windows 注册表 Run 键路径 */
+const WIN_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
+
+/** 获取 Windows 启动 VBS 脚本路径 */
+function getStartupScriptPath(): string {
+  return join(DATA_DIR, `${TASK_NAME}.vbs`);
+}
 
 function registerWindows(info: StartupInfo): void {
-  const serveArgs = info.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-  const command = `"${info.nodePath}" "${info.scriptPath}" _serve ${serveArgs}`;
+  // 生成 .vbs 启动脚本（使用 WScript.Shell.Run 以隐藏窗口方式启动）
+  const serveArgs = info.args.map((a) => (a.includes(' ') ? `""${a}""` : a)).join(' ');
+  const command = `""${info.nodePath}"" ""${info.scriptPath}"" _serve ${serveArgs}`;
+  const scriptContent = `Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "${command}", 0, False\r\n`;
+  const scriptPath = getStartupScriptPath();
 
-  // 删除已有任务（忽略错误）
-  try {
-    execSync(`schtasks /delete /tn "${TASK_NAME}" /f`, { stdio: 'ignore' });
-  } catch {
-    // ignore
-  }
+  mkdirSync(DATA_DIR, { recursive: true });
+  writeFileSync(scriptPath, scriptContent);
 
+  // 通过注册表 Run 键注册开机自启动（无需管理员权限）
   execSync(
-    `schtasks /create /tn "${TASK_NAME}" /tr "${command}" /sc ONLOGON /rl LIMITED /f`,
-    { stdio: 'ignore' },
+    `reg add "${WIN_REG_KEY}" /v "${TASK_NAME}" /t REG_SZ /d "wscript.exe \\"${scriptPath}\\"" /f`,
+    { stdio: 'ignore', shell: 'cmd.exe' },
   );
 }
 
 function unregisterWindows(): void {
   try {
-    execSync(`schtasks /delete /tn "${TASK_NAME}" /f`, { stdio: 'ignore' });
+    execSync(
+      `reg delete "${WIN_REG_KEY}" /v "${TASK_NAME}" /f`,
+      { stdio: 'ignore', shell: 'cmd.exe' },
+    );
+  } catch {
+    // ignore
+  }
+  try {
+    unlinkSync(getStartupScriptPath());
   } catch {
     // ignore
   }
@@ -90,7 +106,10 @@ function unregisterWindows(): void {
 
 function isRegisteredWindows(): boolean {
   try {
-    execSync(`schtasks /query /tn "${TASK_NAME}"`, { stdio: 'ignore' });
+    execSync(
+      `reg query "${WIN_REG_KEY}" /v "${TASK_NAME}"`,
+      { stdio: 'ignore', shell: 'cmd.exe' },
+    );
     return true;
   } catch {
     return false;
@@ -174,7 +193,7 @@ function isRegisteredLinux(): boolean {
  * 注册开机自启动
  *
  * 将启动信息持久化到磁盘，并根据操作系统注册开机启动任务。
- * Windows 使用 schtasks 计划任务，Linux 使用 systemd --user 服务。
+ * Windows 使用注册表 Run 键 + VBS 静默启动，Linux 使用 systemd --user 服务。
  *
  * @param info - 启动信息（Node路径、脚本路径、启动参数）
  */

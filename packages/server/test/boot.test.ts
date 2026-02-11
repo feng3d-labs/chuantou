@@ -85,20 +85,18 @@ describe('boot 模块', () => {
       expect(saved.args).toEqual(testStartupInfo.args);
     });
 
-    it('registerBoot 应该调用 schtasks /create', async () => {
+    it('registerBoot 应该调用 reg add 注册开机启动', async () => {
       const boot = await import('../src/boot.js');
 
       mockExecSync.mockImplementation(() => Buffer.from(''));
 
       boot.registerBoot(testStartupInfo);
 
-      // 应该有两次调用：先 delete（忽略错误），再 create
       const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
-      const createCall = calls.find((c) => c.includes('/create'));
-      expect(createCall).toBeDefined();
-      expect(createCall).toContain('schtasks');
-      expect(createCall).toContain('feng3d-cts');
-      expect(createCall).toContain('ONLOGON');
+      const regCall = calls.find((c) => c.includes('reg add'));
+      expect(regCall).toBeDefined();
+      expect(regCall).toContain('feng3d-cts');
+      expect(regCall).toContain('CurrentVersion\\Run');
     });
   });
 
