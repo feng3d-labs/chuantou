@@ -1,4 +1,6 @@
-# @feng3d/chuantou-client
+# @feng3d/ctc
+
+**ctc** 是 **穿透客户端**（Chuantou Client）的缩写。
 
 内网穿透转发系统的客户端，运行在内网机器上，将本地服务暴露到公网。
 
@@ -9,42 +11,173 @@
 - HTTP/HTTPS 代理
 - WebSocket 代理
 - 多代理支持
+- 单实例模式：支持动态添加代理映射
 
-## 安装
+## 快速开始
 
-```bash
-npm install @feng3d/chuantou-client
-```
-
-## 使用
-
-### 作为独立服务运行
+推荐使用 `npx` 直接运行，无需全局安装：
 
 ```bash
-# 使用默认配置
-chuantou-client
+# 启动客户端（连接本地服务器测试）
+npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:http:3000:localhost"
 
-# 指定服务器地址
-chuantou-client --server ws://your-server.com:9000
+# 查询状态
+npx @feng3d/ctc status
 
-# 指定认证令牌
-chuantou-client --token your-token
+# 列出代理映射
+npx @feng3d/ctc list
 
-# 指定代理配置
-chuantou-client --proxies "8080:http:3000:localhost,8081:ws:3001"
-
-# 使用配置文件
-chuantou-client --config /path/to/config.json
+# 停止客户端
+npx @feng3d/ctc stop
 ```
 
-### 作为库使用
+## 命令说明
+
+### `start` - 启动客户端
+
+```bash
+npx @feng3d/ctc start [选项]
+```
+
+**单实例模式**：只允许一个客户端实例运行。如果客户端已运行，后续的 `start` 命令会向已运行的进程添加新的代理映射。
+
+**常用示例：**
+
+```bash
+# 默认配置启动（使用已配置的服务器和代理）
+npx @feng3d/ctc start
+
+# 指定服务器地址和认证令牌
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token"
+
+# 添加单个代理映射：远程8080端口代理到本地3000端口
+npx @feng3d/ctc start -p "8080:http:3000:localhost"
+
+# 添加多个代理映射
+npx @feng3d/ctc start -p "8080:http:3000:localhost,8081:ws:3001,8082:http:8080"
+
+# 完整参数示例：指定服务器、令牌、代理和重连配置
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:http:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
+```
+
+**参数说明：**
+
+| 参数 | 说明 | 示例 | 默认值 |
+|------|------|------|--------|
+| `-s, --server <url>` | 服务器地址（必填） | `ws://your-server.com:9000` | - |
+| `-t, --token <token>` | 认证令牌（必填） | `my-token` | - |
+| `-p, --proxies <proxies>` | 代理配置（逗号分隔），格式：`远程端口:协议:本地端口:本地地址` | `8080:http:3000:localhost` | - |
+| `--reconnect-interval <ms>` | 重连间隔（毫秒） | `5000` | `5000` |
+| `--max-reconnect <number>` | 最大重连次数 | `10` | `10` |
+| `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
+| `-o, --open` | 启动后在浏览器中打开管理页面 | - | - |
+
+### `status` - 查询客户端状态
+
+```bash
+npx @feng3d/ctc status
+```
+
+**输出示例：**
+
+```
+穿透客户端状态
+  运行中: 是
+  服务器: ws://your-server.com:9000
+  PID: 12345
+  运行时长: 5分30秒
+  代理数量: 2
+```
+
+### `list` - 列出代理映射
+
+```bash
+npx @feng3d/ctc list
+```
+
+**输出示例：**
+
+```
+当前代理映射:
+  http :8080 -> localhost:3000
+  websocket :8081 -> localhost:3001
+```
+
+### `stop` - 停止客户端
+
+```bash
+npx @feng3d/ctc stop
+```
+
+停止客户端并清理所有代理映射。
+
+## Web 管理页面
+
+客户端启动后，可以通过浏览器访问本地管理页面：
+
+```
+http://127.0.0.1:9001/
+```
+
+管理页面提供以下功能：
+- 查看客户端连接状态（服务器地址、连接状态、认证状态）
+- 查看运行时长和重连次数
+- 查看所有已注册的代理映射
+- 动态添加新的代理映射
+- 删除现有代理映射
+- 每 3 秒自动刷新状态
+
+使用 `--open` 参数启动时可自动打开浏览器：
+
+```bash
+npx @feng3d/ctc start --open
+```
+
+## 单实例模式
+
+客户端采用单实例模式设计：
+
+1. **首次启动**：启动后台守护进程，建立与服务器的连接
+2. **再次启动**：如果客户端已运行，则向已运行进程添加新的代理映射
+3. **不同服务器**：如果尝试连接到不同的服务器，会提示错误
+
+这种设计简化了多代理的管理，无需为每组代理配置单独启动客户端。
+
+## 代理配置格式
+
+```
+remotePort:protocol:localPort:localHost
+```
+
+- `remotePort` - 公网端口
+- `protocol` - 协议类型 (`http` 或 `ws`)
+- `localPort` - 本地端口
+- `localHost` - 本地地址（可选，默认 localhost）
+
+**示例：**
+
+```
+# HTTP 代理
+8080:http:3000:localhost
+
+# WebSocket 代理（localHost 可省略）
+8081:ws:3001
+
+# 完整格式
+8082:http:8080:192.168.1.100
+```
+
+## 作为库使用
 
 ```typescript
-import { Controller, ProxyManager } from '@feng3d/chuantou-client';
+import { Controller, ProxyManager } from '@feng3d/ctc';
+import { Config } from '@feng3d/ctc';
 
 const config = {
   serverUrl: 'ws://your-server.com:9000',
-  token: 'your-token',
+  token: 'my-token',
+  reconnectInterval: 5000,
+  maxReconnectAttempts: 10,
   proxies: [
     { remotePort: 8080, protocol: 'http', localPort: 3000, localHost: 'localhost' },
     { remotePort: 8081, protocol: 'websocket', localPort: 3001, localHost: 'localhost' }
@@ -56,62 +189,6 @@ const proxyManager = new ProxyManager(controller);
 
 await controller.connect();
 ```
-
-## 配置
-
-### 命令行参数
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--config` | 配置文件路径 | `~/.chuantou/client.json` |
-| `--server` | 服务器地址 | `ws://localhost:9000` |
-| `--token` | 认证令牌 | `jidexiugaio` |
-| `--proxies` | 代理配置 | `8080:http:3000:localhost,8081:ws:3001` |
-
-### 代理配置格式
-
-```
-remotePort:protocol:localPort:localHost
-```
-
-- `remotePort` - 公网端口
-- `protocol` - 协议类型 (`http` 或 `ws`)
-- `localPort` - 本地端口
-- `localHost` - 本地地址（可选，默认 localhost）
-
-示例：
-- `8080:http:3000:localhost` - 将公网 8080 端口的 HTTP 请求转发到本地 3000 端口
-- `8081:ws:3001` - 将公网 8081 端口的 WebSocket 连接转发到本地 3001 端口
-
-### 配置文件
-
-配置文件路径：`~/.chuantou/client.json`
-
-```json
-{
-  "serverUrl": "ws://your-server.com:9000",
-  "token": "your-token",
-  "reconnectInterval": 5000,
-  "maxReconnectAttempts": 10,
-  "proxies": [
-    { "remotePort": 8080, "protocol": "http", "localPort": 3000, "localHost": "localhost" },
-    { "remotePort": 8081, "protocol": "websocket", "localPort": 3001, "localHost": "localhost" }
-  ]
-}
-```
-
-## 工作流程
-
-1. 客户端连接到服务器
-2. 发送认证令牌
-3. 注册代理服务（指定公网端口和本地服务）
-4. 保持心跳连接
-5. 接收服务器的转发请求，转发到本地服务
-6. 将本地服务的响应返回给服务器
-
-## 断线重连
-
-客户端具有自动重连功能，当与服务器的连接断开时，会自动尝试重新连接。
 
 ## 许可证
 

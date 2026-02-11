@@ -11,6 +11,8 @@
 import { Config } from './config.js';
 import { Controller } from './controller.js';
 import { ProxyManager } from './proxy-manager.js';
+import { AdminServer, ClientStatus } from './admin-server.js';
+import { ProxyConfig } from '@feng3d/chuantou-shared';
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -18,6 +20,7 @@ import { ProxyManager } from './proxy-manager.js';
 export { Config } from './config.js';
 export { Controller } from './controller.js';
 export { ProxyManager } from './proxy-manager.js';
+export { AdminServer } from './admin-server.js';
 export { HttpHandler } from './handlers/http-handler.js';
 export { WsHandler } from './handlers/ws-handler.js';
 export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
@@ -30,7 +33,8 @@ export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
  * 2. 验证配置合法性
  * 3. 创建控制器并连接服务器
  * 4. 认证成功后注册所有代理隧道
- * 5. 监听进程信号实现优雅关闭
+ * 5. 启动本地 HTTP 管理页面服务器
+ * 6. 监听进程信号实现优雅关闭
  *
  * @returns 无返回值的 Promise
  */
@@ -50,11 +54,48 @@ async function main(): Promise<void> {
     console.log(`    - ${proxy.protocol} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`);
   }
 
+  // 记录启动时间
+  const startTime = Date.now();
+
   // 创建控制器
   const controller = new Controller(config);
 
   // 创建代理管理器
   const proxyManager = new ProxyManager(controller);
+
+  // 已注册的代理配置列表（用于管理页面）
+  const registeredProxies: ProxyConfig[] = [];
+  for (const p of config.proxies) {
+    registeredProxies.push({ ...p });
+  }
+
+  // 创建管理页面服务器
+  const adminServer = new AdminServer(
+    { port: 9001, host: '127.0.0.1' },
+    // 获取状态回调
+    (): ClientStatus => ({
+      running: true,
+      serverUrl: config.serverUrl,
+      connected: controller.isConnected(),
+      authenticated: controller.isAuthenticated(),
+      uptime: Date.now() - startTime,
+      proxies: registeredProxies.map(p => ({ ...p })),
+      reconnectAttempts: controller.getReconnectAttempts(),
+    }),
+    // 添加代理回调
+    async (proxy: ProxyConfig): Promise<void> => {
+      await proxyManager.registerProxy(proxy);
+      registeredProxies.push({ ...proxy });
+    },
+    // 删除代理回调
+    async (remotePort: number): Promise<void> => {
+      await proxyManager.unregisterProxy(remotePort);
+      const index = registeredProxies.findIndex(p => p.remotePort === remotePort);
+      if (index !== -1) {
+        registeredProxies.splice(index, 1);
+      }
+    }
+  );
 
   // 监听控制器事件
   controller.on('connected', () => {
@@ -72,10 +113,18 @@ async function main(): Promise<void> {
     for (const proxyConfig of config.proxies) {
       try {
         await proxyManager.registerProxy(proxyConfig);
+        // 代理配置已在初始化时添加到 registeredProxies
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`注册代理失败: ${errorMessage}`);
       }
+    }
+
+    // 启动管理页面服务器
+    try {
+      await adminServer.start();
+    } catch (error) {
+      console.error('管理页面启动失败:', error);
     }
   });
 
@@ -85,19 +134,16 @@ async function main(): Promise<void> {
   });
 
   // 优雅关闭
-  process.on('SIGINT', async () => {
-    console.log('\n收到 SIGINT 信号，正在优雅关闭...');
+  const shutdown = async () => {
+    console.log('\n正在关闭...');
+    await adminServer.stop();
     await proxyManager.destroy();
     controller.disconnect();
     process.exit(0);
-  });
+  };
 
-  process.on('SIGTERM', async () => {
-    console.log('\n收到 SIGTERM 信号，正在优雅关闭...');
-    await proxyManager.destroy();
-    controller.disconnect();
-    process.exit(0);
-  });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
   // 连接到服务器
   try {

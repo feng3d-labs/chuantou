@@ -353,6 +353,15 @@ export class Controller extends EventEmitter {
   }
 
   /**
+   * 获取当前重连尝试次数。
+   *
+   * @returns 当前重连次数
+   */
+  getReconnectAttempts(): number {
+    return this.reconnectAttempts;
+  }
+
+  /**
    * 断开与服务器的连接。
    *
    * 清除重连定时器、停止心跳、关闭 WebSocket 连接，

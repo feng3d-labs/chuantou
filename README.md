@@ -16,16 +16,16 @@ npx skills add feng3d-labs/chuantou
 
 ```bash
 # 服务端
-npx @feng3d/cts -p 9000 -t mytoken
+npx @feng3d/cts start -p 9000 -t mytoken
 
-# 客户端
-npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:3000:localhost"
+# 客户端（连接本地服务器测试）
+npx @feng3d/ctc start -s ws://localhost:9000 -t mytoken -p "8080:http:3000:localhost"
 ```
 
 ### 方式三：全局安装
 
 ```bash
-npm install -g @feng3d/cts @feng3d/chuantou-client
+npm install -g @feng3d/cts @feng3d/ctc
 ```
 
 ## 使用
@@ -33,20 +33,21 @@ npm install -g @feng3d/cts @feng3d/chuantou-client
 ### 启动服务端
 
 ```bash
-npx @feng3d/cts -p 9000 -t "my-token"
+npx @feng3d/cts start -p 9000 -t "my-token"
 ```
 
 选项：
 - `-p, --port <port>` - 控制端口（默认: 9000）
 - `-a, --host <address>` - 监听地址（默认: 0.0.0.0）
-- `-t, --tokens <tokens>` - 认证令牌（逗号分隔，如未设置将自动生成随机token）
+- `-t, --tokens <tokens>` - 认证令牌（逗号分隔）
 - `--tls-key <path>` - TLS 私钥文件路径（启用 HTTPS/WSS）
 - `--tls-cert <path>` - TLS 证书文件路径（启用 HTTPS/WSS）
+- `-o, --open` - 启动后在浏览器中打开状态页面
 
 ### 启动服务端（启用 TLS）
 
 ```bash
-npx @feng3d/cts \
+npx @feng3d/cts start \
   --tls-key /path/to/key.pem \
   --tls-cert /path/to/cert.pem
 ```
@@ -54,56 +55,63 @@ npx @feng3d/cts \
 ### 启动客户端
 
 ```bash
-npx @feng3d/chuantou-client \
-  -s ws://li.feng3d.com:9000 \
+npx @feng3d/ctc start \
+  -s ws://your-server.com:9000 \
   -t "my-token" \
   -p "8080:http:3000:localhost"
 ```
 
 选项：
-- `-s, --server <url>` - 服务器地址（默认: `ws://li.feng3d.com:9000`）
+- `-s, --server <url>` - 服务器地址（必填，如 `ws://your-server.com:9000`）
   - 如果服务端启用了 TLS，使用 `wss://` 协议
-- `-t, --token <token>` - 认证令牌
+- `-t, --token <token>` - 认证令牌（必填）
 - `-p, --proxies <proxies>` - 代理配置（格式: `remotePort:protocol:localPort:localHost`）
+- `-o, --open` - 启动后在浏览器中打开管理页面
 
 ### 访问服务
 
-启动成功后，访问 `http://li.feng3d.com:8080` 即可访问本地的 3000 端口服务。
+启动成功后，访问 `http://your-server.com:8080` 即可访问本地的 3000 端口服务。
+
+## 管理页面
+
+### 服务端管理页面
+
+服务端启动后，可通过浏览器访问状态监控页面：
+
+```
+http://your-server.com:9000/
+```
+
+显示内容：
+- 服务器运行状态
+- 监听地址和端口
+- 已认证客户端数量
+- 已注册端口数量
+- 活跃连接数
+- 客户端会话列表
+
+### 客户端管理页面
+
+客户端启动后，可通过浏览器访问本地管理页面：
+
+```
+http://127.0.0.1:9001/
+```
+
+功能：
+- 查看客户端连接状态
+- 查看已注册的代理映射
+- 动态添加/删除代理映射
 
 ## 示例
 
 ```bash
 # HTTP 代理
-npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:3000:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:http:3000:localhost"
 
 # WebSocket 代理
-npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8081:ws:3001:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8081:ws:3001:localhost"
 
 # 多个代理
-npx @feng3d/chuantou-client -s ws://li.feng3d.com:9000 -t mytoken -p "8080:http:3000:localhost,8081:ws:3001:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:http:3000:localhost,8081:ws:3001:localhost"
 ```
-
-## 配置文件
-
-### 服务端配置：`~/.chuantou/server.json`
-
-```json
-{
-  "controlPort": 9000,
-  "authTokens": ["token1", "token2"]
-}
-```
-
-### 客户端配置：`~/.chuantou/client.json`
-
-```json
-{
-  "serverUrl": "ws://li.feng3d.com:9000",
-  "token": "my-token",
-  "proxies": [
-    { "remotePort": 8080, "protocol": "http", "localPort": 3000 }
-  ]
-}
-```
-
-使用配置文件：`npx @feng3d/cts -c ~/.chuantou/server.json`
