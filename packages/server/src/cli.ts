@@ -4,22 +4,28 @@
  * @module cli
  * @description 穿透服务端命令行工具模块。
  * 提供 `feng3d-cts` CLI 命令，支持通过命令行启动、停止和查询转发服务器状态。
+ * `start` 以后台守护进程方式运行服务器并注册开机自启动。
  * 使用 PID 文件跟踪运行中的服务器实例，以实现跨进程的状态管理。
  */
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
 import { request } from 'http';
 import { request as httpsRequest } from 'https';
+import { spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import { start, stop } from './index.js';
+import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
 
 /** PID 文件存放目录路径 */
 const PID_DIR = join(homedir(), '.chuantou');
 /** PID 文件完整路径 */
 const PID_FILE = join(PID_DIR, 'server.pid');
+/** 日志文件路径 */
+const LOG_FILE = join(PID_DIR, 'server.log');
 
 /**
  * PID 文件信息接口
@@ -130,6 +136,44 @@ function httpPost(host: string, port: number, path: string, tls: boolean): Promi
   });
 }
 
+/**
+ * 等待服务器启动完成
+ *
+ * 通过轮询 HTTP 状态端点验证后台服务器是否成功启动。
+ *
+ * @param host - 服务器监听地址
+ * @param port - 控制端口
+ * @param tls - 是否使用 TLS
+ * @param timeoutMs - 最大等待时间（毫秒）
+ * @returns 是否成功启动
+ */
+async function waitForStartup(host: string, port: number, tls: boolean, timeoutMs: number): Promise<boolean> {
+  const startTime = Date.now();
+  const interval = 500;
+
+  while (Date.now() - startTime < timeoutMs) {
+    await new Promise((r) => setTimeout(r, interval));
+    try {
+      await httpGet(host, port, '/_chuantou/status', tls);
+      return true;
+    } catch {
+      // 未就绪，继续重试
+    }
+  }
+  return false;
+}
+
+/** 服务器选项的 CLI 选项定义，供 start 和 _serve 共用 */
+const serverOptions = [
+  ['-p, --port <port>', '控制端口', '9000'],
+  ['-a, --host <address>', '监听地址', '0.0.0.0'],
+  ['-t, --tokens <tokens>', '认证令牌（逗号分隔）'],
+  ['--tls-key <path>', 'TLS 私钥文件路径'],
+  ['--tls-cert <path>', 'TLS 证书文件路径'],
+  ['--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000'],
+  ['--session-timeout <ms>', '会话超时（毫秒）', '60000'],
+] as const;
+
 const program = new Command();
 
 program
@@ -137,55 +181,147 @@ program
   .description(chalk.blue('穿透 - 内网穿透服务端'))
   .version('0.0.5');
 
-program
-  .command('start')
-  .description('启动服务器')
-  .option('-p, --port <port>', '控制端口', '9000')
-  .option('-a, --host <address>', '监听地址', '0.0.0.0')
-  .option('-t, --tokens <tokens>', '认证令牌（逗号分隔）')
-  .option('--tls-key <path>', 'TLS 私钥文件路径')
-  .option('--tls-cert <path>', 'TLS 证书文件路径')
-  .option('--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000')
-  .option('--session-timeout <ms>', '会话超时（毫秒）', '60000')
-  .action(async (options) => {
-    const tls = (options.tlsKey && options.tlsCert)
-      ? { key: readFileSync(options.tlsKey, 'utf-8'), cert: readFileSync(options.tlsCert, 'utf-8') }
-      : undefined;
+// ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
 
-    const serverOptions = {
-      host: options.host,
-      controlPort: parseInt(options.port, 10),
-      authTokens: options.tokens ? options.tokens.split(',') : [],
-      heartbeatInterval: parseInt(options.heartbeatInterval, 10),
-      sessionTimeout: parseInt(options.sessionTimeout, 10),
-      tls,
-    };
+const serveCmd = program.command('_serve', { hidden: true }).description('前台运行服务器（内部命令）');
+for (const opt of serverOptions) {
+  if (opt.length === 3) {
+    serveCmd.option(opt[0], opt[1], opt[2]);
+  } else {
+    serveCmd.option(opt[0], opt[1]);
+  }
+}
+serveCmd.action(async (options) => {
+  const tls = (options.tlsKey && options.tlsCert)
+    ? { key: readFileSync(options.tlsKey, 'utf-8'), cert: readFileSync(options.tlsCert, 'utf-8') }
+    : undefined;
 
-    const server = await start(serverOptions);
+  const opts = {
+    host: options.host,
+    controlPort: parseInt(options.port, 10),
+    authTokens: options.tokens ? options.tokens.split(',') : [],
+    heartbeatInterval: parseInt(options.heartbeatInterval, 10),
+    sessionTimeout: parseInt(options.sessionTimeout, 10),
+    tls,
+  };
 
-    writePidFile({
-      pid: process.pid,
-      host: serverOptions.host,
-      controlPort: serverOptions.controlPort,
-      tls: tls !== undefined,
-    });
+  const server = await start(opts);
 
-    console.log(chalk.green('服务器启动成功'));
-    console.log(chalk.gray(`  主机: ${serverOptions.host}`));
-    console.log(chalk.gray(`  端口: ${serverOptions.controlPort}`));
-    console.log(chalk.gray(`  令牌: 已配置 ${serverOptions.authTokens.length} 个`));
-    console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
-
-    const shutdown = async () => {
-      console.log(chalk.yellow('\n正在关闭...'));
-      await stop(server);
-      removePidFile();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', shutdown);
-    process.on('SIGTERM', shutdown);
+  writePidFile({
+    pid: process.pid,
+    host: opts.host,
+    controlPort: opts.controlPort,
+    tls: tls !== undefined,
   });
+
+  console.log(chalk.green('服务器启动成功'));
+  console.log(chalk.gray(`  主机: ${opts.host}`));
+  console.log(chalk.gray(`  端口: ${opts.controlPort}`));
+  console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
+
+  const shutdown = async () => {
+    console.log(chalk.yellow('\n正在关闭...'));
+    await stop(server);
+    removePidFile();
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+});
+
+// ====== start 命令（后台守护进程 + 开机启动）======
+
+const startCmd = program.command('start').description('启动服务器（后台运行并注册开机自启动）');
+for (const opt of serverOptions) {
+  if (opt.length === 3) {
+    startCmd.option(opt[0], opt[1], opt[2]);
+  } else {
+    startCmd.option(opt[0], opt[1]);
+  }
+}
+startCmd.option('--no-boot', '不注册开机自启动');
+startCmd.action(async (options) => {
+  // 1. 检测是否已在运行
+  const existing = readPidFile();
+  if (existing) {
+    try {
+      await httpGet(existing.host, existing.controlPort, '/_chuantou/status', existing.tls);
+      console.log(chalk.yellow('服务器已在运行中'));
+      console.log(chalk.gray(`  PID: ${existing.pid}`));
+      console.log(chalk.gray(`  端口: ${existing.controlPort}`));
+      return;
+    } catch {
+      // PID 文件残留，清理后继续
+      removePidFile();
+    }
+  }
+
+  // 2. 确保数据目录存在
+  mkdirSync(PID_DIR, { recursive: true });
+
+  // 3. 解析路径
+  const scriptPath = fileURLToPath(import.meta.url);
+  const nodePath = process.execPath;
+
+  // 4. 构建 _serve 参数
+  const serveArgs: string[] = [];
+  serveArgs.push('--port', options.port);
+  serveArgs.push('--host', options.host);
+  if (options.tokens) serveArgs.push('--tokens', options.tokens);
+  if (options.tlsKey) serveArgs.push('--tls-key', options.tlsKey);
+  if (options.tlsCert) serveArgs.push('--tls-cert', options.tlsCert);
+  serveArgs.push('--heartbeat-interval', options.heartbeatInterval);
+  serveArgs.push('--session-timeout', options.sessionTimeout);
+
+  // 5. 打开日志文件
+  const logFd = openSync(LOG_FILE, 'a');
+
+  // 6. 启动后台守护进程
+  const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  });
+
+  child.unref();
+  closeSync(logFd);
+
+  // 7. 等待服务器启动
+  const controlPort = parseInt(options.port, 10);
+  const host = options.host;
+  const tls = !!(options.tlsKey && options.tlsCert);
+
+  const started = await waitForStartup(host, controlPort, tls, 10000);
+
+  if (!started) {
+    console.log(chalk.red('服务器启动失败，请查看日志文件:'));
+    console.log(chalk.gray(`  ${LOG_FILE}`));
+    process.exit(1);
+  }
+
+  console.log(chalk.green('服务器已在后台启动'));
+  console.log(chalk.gray(`  PID: ${child.pid}`));
+  console.log(chalk.gray(`  主机: ${host}`));
+  console.log(chalk.gray(`  端口: ${controlPort}`));
+  console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
+  console.log(chalk.gray(`  日志: ${LOG_FILE}`));
+
+  // 8. 注册开机启动
+  if (options.boot !== false) {
+    try {
+      registerBoot({
+        nodePath,
+        scriptPath,
+        args: serveArgs,
+      });
+      console.log(chalk.green('已注册开机自启动'));
+    } catch (err) {
+      console.log(chalk.yellow(`注册开机自启动失败: ${err instanceof Error ? err.message : err}`));
+    }
+  }
+});
+
+// ====== status 命令 ======
 
 program
   .command('status')
@@ -209,6 +345,7 @@ program
       console.log(chalk.gray(`  客户端: ${status.authenticatedClients}`));
       console.log(chalk.gray(`  端口: ${status.totalPorts}`));
       console.log(chalk.gray(`  连接数: ${status.activeConnections}`));
+      console.log(chalk.gray(`  开机自启: ${isBootRegistered() ? chalk.green('已注册') : '未注册'}`));
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();
@@ -216,9 +353,11 @@ program
     }
   });
 
+// ====== stop 命令 ======
+
 program
   .command('stop')
-  .description('停止服务器')
+  .description('停止服务器并取消开机自启动')
   .action(async () => {
     const pidInfo = readPidFile();
     if (!pidInfo) {
@@ -233,7 +372,16 @@ program
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();
-      process.exit(1);
+    }
+
+    // 取消开机启动
+    try {
+      if (isBootRegistered()) {
+        unregisterBoot();
+        console.log(chalk.green('已取消开机自启动'));
+      }
+    } catch (err) {
+      console.log(chalk.yellow(`取消开机自启动失败: ${err instanceof Error ? err.message : err}`));
     }
   });
 
