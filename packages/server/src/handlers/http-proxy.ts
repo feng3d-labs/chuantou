@@ -1,3 +1,9 @@
+/**
+ * @module http-proxy
+ * @description HTTP 代理处理器模块，负责在指定端口上启动 HTTP 代理服务器。
+ * 将外部 HTTP 请求转发给穿透客户端，并等待客户端返回响应数据后回复给请求方。
+ */
+
 import { Server as HttpServer, IncomingMessage, ServerResponse } from 'http';
 import { WebSocket, WebSocketServer } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
@@ -5,23 +11,42 @@ import { MessageType, createMessage, NewConnectionMessage, ConnectionCloseMessag
 import { SessionManager } from '../session-manager.js';
 
 /**
- * HTTP代理处理器
+ * HTTP 代理处理器
+ *
+ * 管理多个 HTTP 代理服务器实例，每个代理监听一个独立端口。
+ * 当外部请求到达代理端口时，将请求信息通过控制通道转发给对应的穿透客户端，
+ * 等待客户端处理完成后将响应返回给请求方。
  */
 export class HttpProxyHandler {
+  /** 会话管理器实例 */
   private sessionManager: SessionManager;
+  /** 代理服务器映射表，键为端口号，值为 HTTP 服务器实例 */
   private proxies: Map<number, HttpServer>;
 
+  /**
+   * 创建 HTTP 代理处理器实例
+   *
+   * @param sessionManager - 会话管理器，用于获取客户端连接和管理连接记录
+   */
   constructor(sessionManager: SessionManager) {
     this.sessionManager = sessionManager;
     this.proxies = new Map();
   }
 
   /**
-   * 启动HTTP代理
+   * 启动 HTTP 代理服务器
+   *
+   * 在指定端口创建并启动一个 HTTP 服务器，将该端口的所有请求转发给对应客户端。
+   * 若该端口已存在代理或端口被占用，将抛出异常。
+   *
+   * @param port - 代理监听的端口号
+   * @param clientId - 绑定的客户端唯一标识 ID
+   * @returns 代理服务器启动完成的 Promise
+   * @throws 端口已存在代理或端口被占用时抛出错误
    */
   async startProxy(port: number, clientId: string): Promise<void> {
     if (this.proxies.has(port)) {
-      throw new Error(`Proxy already exists for port ${port}`);
+      throw new Error(`端口 ${port} 的代理已存在`);
     }
 
     const server = new HttpServer();
@@ -37,19 +62,19 @@ export class HttpProxyHandler {
     });
 
     server.on('error', (error) => {
-      console.error(`HTTP proxy error on port ${port}:`, error);
+      console.error(`HTTP 代理在端口 ${port} 上发生错误:`, error);
     });
 
     return new Promise<void>((resolve, reject) => {
       server.listen(port, () => {
-        console.log(`HTTP proxy listening on port ${port} for client ${clientId}`);
+        console.log(`HTTP 代理正在端口 ${port} 上监听，绑定客户端 ${clientId}`);
         this.proxies.set(port, server);
         resolve();
       });
 
       server.on('error', (error: NodeJS.ErrnoException) => {
         if (error.code === 'EADDRINUSE') {
-          reject(new Error(`Port ${port} is already in use`));
+          reject(new Error(`端口 ${port} 已被占用`));
         } else {
           reject(error);
         }
@@ -58,7 +83,14 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 处理HTTP请求
+   * 处理外部 HTTP 请求
+   *
+   * 将外部 HTTP 请求封装为消息发送给穿透客户端，等待客户端处理后返回响应。
+   * 流程包括：记录连接、构建请求头、读取请求体、发送到客户端、等待响应、回复请求方。
+   *
+   * @param clientId - 处理该请求的客户端唯一标识 ID
+   * @param req - 收到的 HTTP 请求对象
+   * @param res - 用于发送响应的 HTTP 响应对象
    */
   private async handleRequest(clientId: string, req: IncomingMessage, res: ServerResponse): Promise<void> {
     const connectionId = uuidv4();
@@ -66,14 +98,14 @@ export class HttpProxyHandler {
 
     if (!clientSocket || clientSocket.readyState !== WebSocket.OPEN) {
       res.writeHead(502, { 'Content-Type': 'text/plain' });
-      res.end('Bad Gateway: Client not connected');
+      res.end('网关错误：客户端未连接');
       return;
     }
 
     // 记录连接
     this.sessionManager.addConnection(clientId, connectionId, req.socket.remoteAddress || '', 'http');
 
-    console.log(`HTTP request: ${req.method} ${req.url} -> client ${clientId} (${connectionId})`);
+    console.log(`HTTP 请求: ${req.method} ${req.url} -> 客户端 ${clientId} (${connectionId})`);
 
     try {
       // 构建请求头
@@ -117,12 +149,12 @@ export class HttpProxyHandler {
         res.end();
       }
 
-      console.log(`HTTP response: ${response.statusCode} for ${connectionId}`);
+      console.log(`HTTP 响应: ${response.statusCode}，连接 ${connectionId}`);
     } catch (error) {
-      console.error(`Error handling HTTP request ${connectionId}:`, error);
+      console.error(`处理 HTTP 请求 ${connectionId} 时出错:`, error);
       if (!res.headersSent) {
         res.writeHead(500, { 'Content-Type': 'text/plain' });
-        res.end('Internal Server Error');
+        res.end('服务器内部错误');
       }
     } finally {
       // 清理连接
@@ -132,19 +164,34 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 等待客户端响应
+   * 待处理响应映射表
+   *
+   * 存储等待客户端响应的 Promise 回调和超时定时器，键为连接 ID。
    */
   private pendingResponses: Map<string, {
+    /** 响应成功时的 Promise resolve 回调 */
     resolve: (value: HttpResponseData) => void;
+    /** 响应失败时的 Promise reject 回调 */
     reject: (error: Error) => void;
+    /** 响应超时定时器 */
     timeout: NodeJS.Timeout;
   }> = new Map();
 
+  /**
+   * 等待客户端响应
+   *
+   * 创建一个 Promise，等待穿透客户端处理完请求并返回响应数据。
+   * 若超过 30 秒未收到响应，将自动超时并拒绝 Promise。
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param clientId - 客户端唯一标识 ID
+   * @returns 客户端返回的 HTTP 响应数据
+   */
   private waitForResponse(connectionId: string, clientId: string): Promise<HttpResponseData> {
     return new Promise((resolve, reject) => {
       const timeout = setTimeout(() => {
         this.pendingResponses.delete(connectionId);
-        reject(new Error('Response timeout'));
+        reject(new Error('响应超时'));
       }, 30000); // 30秒超时
 
       this.pendingResponses.set(connectionId, { resolve, reject, timeout });
@@ -152,7 +199,12 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 处理客户端的响应数据
+   * 处理穿透客户端返回的响应数据
+   *
+   * 接收客户端处理完请求后返回的 HTTP 响应数据，清除超时定时器并解析对应的待处理 Promise。
+   *
+   * @param connectionId - 连接唯一标识 ID
+   * @param data - 客户端返回的 HTTP 响应数据
    */
   handleClientResponse(connectionId: string, data: HttpResponseData): void {
     const pending = this.pendingResponses.get(connectionId);
@@ -164,7 +216,12 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 读取请求体
+   * 读取 HTTP 请求体
+   *
+   * 从 IncomingMessage 流中读取完整的请求体数据。
+   *
+   * @param req - HTTP 请求对象
+   * @returns 包含完整请求体的 Buffer
    */
   private readRequestBody(req: IncomingMessage): Promise<Buffer> {
     return new Promise((resolve, reject) => {
@@ -180,14 +237,19 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 停止HTTP代理
+   * 停止指定端口的 HTTP 代理服务器
+   *
+   * 关闭指定端口上的 HTTP 代理服务器并从映射表中移除。
+   *
+   * @param port - 需要停止的代理端口号
+   * @returns 代理服务器关闭完成的 Promise
    */
   async stopProxy(port: number): Promise<void> {
     const server = this.proxies.get(port);
     if (server) {
       return new Promise<void>((resolve) => {
         server.close(() => {
-          console.log(`HTTP proxy stopped on port ${port}`);
+          console.log(`HTTP 代理已在端口 ${port} 上停止`);
           this.proxies.delete(port);
           resolve();
         });
@@ -196,7 +258,11 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 停止所有代理
+   * 停止所有 HTTP 代理服务器
+   *
+   * 并行关闭所有已启动的 HTTP 代理服务器。
+   *
+   * @returns 所有代理服务器关闭完成的 Promise
    */
   async stopAll(): Promise<void> {
     const stopPromises: Promise<void>[] = [];
@@ -207,7 +273,9 @@ export class HttpProxyHandler {
   }
 
   /**
-   * 获取活跃代理端口列表
+   * 获取所有活跃代理的端口列表
+   *
+   * @returns 当前正在运行的所有 HTTP 代理端口号数组
    */
   getActivePorts(): number[] {
     return Array.from(this.proxies.keys());

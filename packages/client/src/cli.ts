@@ -1,13 +1,25 @@
 #!/usr/bin/env node
 /**
- * Chuantou Client CLI
- * @feng3d/chuantou-client
+ * @module cli
+ *
+ * 穿透（Chuantou）内网穿透客户端命令行界面模块。
+ *
+ * 基于 commander 库实现命令行参数解析，提供以下选项：
+ * - `-s, --server <url>` - 服务器 WebSocket 地址
+ * - `-t, --token <token>` - 认证令牌
+ * - `-p, --proxies <proxies>` - 代理配置字符串
+ * - `-c, --config <path>` - 配置文件路径
+ * - `--reconnect-interval <ms>` - 重连间隔时间
+ * - `--max-reconnect <number>` - 最大重连次数
+ *
+ * 解析后的参数会被追加到 `process.argv` 中，供 {@link Config.load} 方法读取。
  */
 
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { run } from './index.js';
 
+/** Commander 程序实例 */
 const program = new Command();
 
 program
@@ -21,7 +33,7 @@ program
   .option('--reconnect-interval <ms>', '重连间隔（毫秒）', '5000')
   .option('--max-reconnect <number>', '最大重连次数', '10')
   .action(async (options) => {
-    // 将命令行参数转换为环境变量，供 Config.load() 读取
+    // 将命令行参数转换为 process.argv 格式，供 Config.load() 读取
     if (options.server) process.argv.push('--server', options.server);
     if (options.token) process.argv.push('--token', options.token);
     if (options.proxies) process.argv.push('--proxies', options.proxies);
