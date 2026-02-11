@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "name": "@feng3d/chuantou",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "穿透 - 内网穿透转发系统 | Claude Code Skills",
   "keywords": [
     "chuantou",

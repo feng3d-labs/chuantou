@@ -87,7 +87,7 @@ program
   .description('统一设置所有包的版本号')
   .argument('[version|type]', '版本号 (如 1.0.0) 或升级类型 (major/minor/patch)', 'patch')
   .option('-d, --dry-run', '预览模式，不实际修改')
-  .option('-i, --install', '更新版本后自动运行 npm install')
+  .option('--no-install', '更新版本后跳过 npm install')
   .option('-c, --commit', '更新版本后自动提交到 git')
   .option('-p, --push', '更新版本后自动推送到远程')
   .action(async (input, options) => {
@@ -130,8 +130,8 @@ program
       console.log();
       console.log(chalk.green.bold('✅ 所有包版本号已更新!'));
 
-      // 运行 npm install
-      if (options.install) {
+      // 运行 npm install（默认执行，除非 --no-install）
+      if (options.install !== false) {
         console.log();
         console.log(chalk.gray('运行 npm install 更新依赖...'));
         const rootDir = path.join(__dirname, '..');
@@ -174,7 +174,7 @@ program
       }
 
       console.log();
-      if (options.install && options.commit) {
+      if (options.install !== false && options.commit) {
         console.log(chalk.green.bold('✅ 完成! 工作流将被触发'));
       }
     } else {
