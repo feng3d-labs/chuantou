@@ -21,7 +21,13 @@
 # 启动服务器（默认配置）
 npx @feng3d/cts start
 
-# 启动服务器（完整参数示例）
+# 单个 token
+npx @feng3d/cts start -p 9000 -t "my-token"
+
+# 多个 token（逗号分隔）
+npx @feng3d/cts start -p 9000 -t "token1,token2,token3"
+
+# 完整参数示例
 npx @feng3d/cts start -p 9000 -a 0.0.0.0 -t "my-token" --heartbeat-interval 30000 --session-timeout 60000
 
 # 启动服务器并在浏览器中打开状态页面
@@ -89,6 +95,17 @@ http://127.0.0.1:9000/
 ```bash
 npx @feng3d/cts start --open
 ```
+
+## 多 Token 配置
+
+支持配置多个认证令牌，允许不同的客户端使用各自的令牌连接：
+
+```bash
+# 三个客户端使用不同的 token
+npx @feng3d/cts start -t "client1-token,client2-token,client3-token"
+```
+
+每个客户端连接时使用对应的 token 即可认证成功。
 
 ## 架构
 
