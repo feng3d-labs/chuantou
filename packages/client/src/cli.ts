@@ -237,7 +237,10 @@ startCmd.action(async (options) => {
     console.log(chalk.gray(`  日志: ${logPath}`));
 
     if (proxies.length > 0) {
-      console.log(chalk.gray(`  代理数量: ${proxies.length}`));
+      console.log(chalk.gray(`  代理映射:`));
+      for (const proxy of proxies) {
+        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+      }
     }
 
     // 打开浏览器
