@@ -16,6 +16,7 @@ import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get as httpGet } from 'http';
 import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
 
 /** 客户端实例数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
@@ -135,6 +136,7 @@ for (const opt of serverOptions) {
   }
 }
 startCmd.option('--no-daemon', '前台运行（不作为后台守护进程）');
+startCmd.option('--no-autostart', '不注册开机启动');
 startCmd.option('-o, --open', '启动后在浏览器中打开管理页面');
 startCmd.action(async (options) => {
   const serverUrl = options.server;
@@ -232,6 +234,15 @@ startCmd.action(async (options) => {
     const clientInfo: ClientInfo = { serverUrl, pid, startedAt: Date.now() };
     writePidFile(clientInfo);
 
+    // 注册开机启动
+    if (options.autostart !== false) {
+      try {
+        registerBoot({ nodePath, scriptPath, args: ['--server', serverUrl, ...(token ? ['--token', token] : []), ...(proxiesStr ? ['--proxies', proxiesStr] : []), '--reconnect-interval', options.reconnectInterval, '--max-reconnect', options.maxReconnect] });
+      } catch {
+        // 注册失败不影响正常启动
+      }
+    }
+
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  日志: ${logPath}`));
 
@@ -303,6 +314,7 @@ program
     }
 
     removePidFile();
+    unregisterBoot();
     console.log(chalk.green('客户端已停止'));
   });
 
@@ -329,6 +341,7 @@ async function printStatus(info: ClientInfo): Promise<void> {
   console.log(chalk.gray(`  PID: ${info.pid}`));
   console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
   console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
+  console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 
   const status = await getClientStatus();
   if (status) {

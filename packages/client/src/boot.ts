@@ -13,46 +13,27 @@ import { homedir, platform } from 'os';
 /** 数据目录路径 */
 const DATA_DIR = join(homedir(), '.chuantou');
 /** 启动配置文件路径 */
-const STARTUP_FILE = join(DATA_DIR, 'cts-startup.json');
+const STARTUP_FILE = join(DATA_DIR, 'ctc-startup.json');
 /** 任务/服务名称 */
-const TASK_NAME = 'feng3d-cts';
+const TASK_NAME = 'feng3d-ctc';
 
 /**
  * 启动信息接口
- *
- * 保存启动命令的完整信息，用于重建开机自启动任务。
  */
 export interface StartupInfo {
   /** Node.js 可执行文件的绝对路径 */
   nodePath: string;
   /** CLI 脚本文件的绝对路径 */
   scriptPath: string;
-  /** 传递给 _serve 命令的参数数组 */
+  /** 传递给 start 命令的参数数组 */
   args: string[];
 }
 
-/**
- * 保存启动信息到文件
- */
 function saveStartupInfo(info: StartupInfo): void {
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(STARTUP_FILE, JSON.stringify(info, null, 2));
 }
 
-/**
- * 读取启动信息
- */
-function loadStartupInfo(): StartupInfo | null {
-  try {
-    return JSON.parse(readFileSync(STARTUP_FILE, 'utf-8'));
-  } catch {
-    return null;
-  }
-}
-
-/**
- * 删除启动信息文件
- */
 function removeStartupInfo(): void {
   try {
     unlinkSync(STARTUP_FILE);
@@ -63,25 +44,21 @@ function removeStartupInfo(): void {
 
 // ====== Windows 实现（注册表 Run 键）======
 
-/** Windows 注册表 Run 键路径 */
 const WIN_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
 
-/** 获取 Windows 启动 VBS 脚本路径 */
 function getStartupScriptPath(): string {
   return join(DATA_DIR, `${TASK_NAME}.vbs`);
 }
 
 function registerWindows(info: StartupInfo): void {
-  // 生成 .vbs 启动脚本（使用 WScript.Shell.Run 以隐藏窗口方式启动）
   const serveArgs = info.args.map((a) => (a.includes(' ') ? `""${a}""` : a)).join(' ');
-  const command = `""${info.nodePath}"" ""${info.scriptPath}"" _serve ${serveArgs}`;
+  const command = `""${info.nodePath}"" ""${info.scriptPath}"" start ${serveArgs}`;
   const scriptContent = `Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "${command}", 0, False\r\n`;
   const scriptPath = getStartupScriptPath();
 
   mkdirSync(DATA_DIR, { recursive: true });
   writeFileSync(scriptPath, scriptContent);
 
-  // 通过注册表 Run 键注册开机自启动（无需管理员权限）
   execSync(
     `reg add "${WIN_REG_KEY}" /v "${TASK_NAME}" /t REG_SZ /d "wscript.exe \\"${scriptPath}\\"" /f`,
     { stdio: 'ignore', shell: 'cmd.exe' },
@@ -127,11 +104,11 @@ function registerLinux(info: StartupInfo): void {
   mkdirSync(serviceDir, { recursive: true });
 
   const serveArgs = info.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-  const command = `${info.nodePath} ${info.scriptPath} _serve ${serveArgs}`;
-  const logFile = join(DATA_DIR, 'server.log');
+  const command = `${info.nodePath} ${info.scriptPath} start ${serveArgs}`;
+  const logFile = join(DATA_DIR, 'client.log');
 
   const unit = `[Unit]
-Description=feng3d-cts 穿透内网穿透服务端
+Description=feng3d-ctc 穿透内网穿透客户端
 After=network.target
 
 [Service]
@@ -150,11 +127,10 @@ WantedBy=default.target
   execSync('systemctl --user daemon-reload', { stdio: 'ignore' });
   execSync(`systemctl --user enable ${TASK_NAME}.service`, { stdio: 'ignore' });
 
-  // 尝试启用 linger，使服务在用户未登录时也能运行
   try {
     execSync('loginctl enable-linger', { stdio: 'ignore' });
   } catch {
-    // ignore - 用户可手动运行 sudo loginctl enable-linger $USER
+    // ignore
   }
 }
 
@@ -191,11 +167,6 @@ function isRegisteredLinux(): boolean {
 
 /**
  * 注册开机自启动
- *
- * 将启动信息持久化到磁盘，并根据操作系统注册开机启动任务。
- * Windows 使用注册表 Run 键 + VBS 静默启动，Linux 使用 systemd --user 服务。
- *
- * @param info - 启动信息（Node路径、脚本路径、启动参数）
  */
 export function registerBoot(info: StartupInfo): void {
   saveStartupInfo(info);
@@ -211,8 +182,6 @@ export function registerBoot(info: StartupInfo): void {
 
 /**
  * 取消开机自启动
- *
- * 根据操作系统注销开机启动任务，并清理启动配置文件。
  */
 export function unregisterBoot(): void {
   const os = platform();
@@ -226,8 +195,6 @@ export function unregisterBoot(): void {
 
 /**
  * 查询是否已注册开机自启动
- *
- * @returns 是否已注册
  */
 export function isBootRegistered(): boolean {
   const os = platform();

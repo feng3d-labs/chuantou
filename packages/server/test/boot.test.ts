@@ -45,7 +45,7 @@ describe('boot 模块', () => {
   afterEach(() => {
     // 清理测试文件
     try {
-      unlinkSync(join(testHomeDir, '.chuantou', 'startup.json'));
+      unlinkSync(join(testHomeDir, '.chuantou', 'cts-startup.json'));
     } catch {
       // ignore
     }
@@ -78,7 +78,7 @@ describe('boot 模块', () => {
       boot.registerBoot(testStartupInfo);
 
       const saved = JSON.parse(
-        readFileSync(join(testHomeDir, '.chuantou', 'startup.json'), 'utf-8'),
+        readFileSync(join(testHomeDir, '.chuantou', 'cts-startup.json'), 'utf-8'),
       );
       expect(saved.nodePath).toBe('/usr/bin/node');
       expect(saved.scriptPath).toBe('/path/to/cli.js');
@@ -102,7 +102,7 @@ describe('boot 模块', () => {
 
   describe('启动信息持久化', () => {
     it('应该能保存和读取启动信息', () => {
-      const filePath = join(testHomeDir, '.chuantou', 'startup.json');
+      const filePath = join(testHomeDir, '.chuantou', 'cts-startup.json');
       writeFileSync(filePath, JSON.stringify(testStartupInfo, null, 2));
 
       const content = JSON.parse(readFileSync(filePath, 'utf-8'));

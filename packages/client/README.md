@@ -63,6 +63,7 @@ npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:l
 | `--reconnect-interval <ms>` | 重连间隔（毫秒） | `5000` | `5000` |
 | `--max-reconnect <number>` | 最大重连次数 | `10` | `10` |
 | `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
+| `--no-autostart` | 不注册开机启动 | - | - |
 | `-o, --open` | 启动后在浏览器中打开管理页面 | - | - |
 
 ### `status` - 查询客户端状态与代理列表（别名：`zt`）
@@ -77,6 +78,8 @@ npx @feng3d/ctc status
 穿透客户端状态
   PID: 12345
   服务器: ws://your-server.com:9000
+  管理页面: http://127.0.0.1:9001/
+  开机启动: 已启用
   连接状态: 已认证
   运行时长: 5分30秒
   代理映射: 2 个
