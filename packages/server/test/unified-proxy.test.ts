@@ -7,10 +7,12 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { UnifiedProxyHandler } from '../src/handlers/unified-proxy.js';
 import { SessionManager } from '../src/session-manager.js';
+import { DataChannelManager } from '../src/data-channel.js';
 import { MessageType } from '@feng3d/chuantou-shared';
 
 describe('UnifiedProxyHandler', () => {
   let sessionManager: SessionManager;
+  let dataChannelManager: DataChannelManager;
   let unifiedProxy: UnifiedProxyHandler;
   let mockClientSocket: any;
   let clientId: string;
@@ -21,18 +23,20 @@ describe('UnifiedProxyHandler', () => {
     // 创建 SessionManager
     sessionManager = new SessionManager(30000, 120000);
 
+    // 创建 DataChannelManager
+    dataChannelManager = new DataChannelManager();
+
     // 创建 Mock WebSocket
     mockClientSocket = new EventEmitter();
     mockClientSocket.readyState = 1; // WebSocket.OPEN
     mockClientSocket.send = vi.fn();
-    mockClientSocket.on = vi.fn();
 
     // 创建客户端会话
     clientId = sessionManager.createSession(mockClientSocket as any);
     sessionManager.authenticateClient(clientId);
 
     // 创建 UnifiedProxyHandler
-    unifiedProxy = new UnifiedProxyHandler(sessionManager);
+    unifiedProxy = new UnifiedProxyHandler(sessionManager, dataChannelManager);
   });
 
   afterEach(() => {
@@ -48,153 +52,92 @@ describe('UnifiedProxyHandler', () => {
       expect((unifiedProxy as any).proxies.size).toBe(0);
     });
 
-    it('should initialize empty pendingResponses map', () => {
-      expect((unifiedProxy as any).pendingResponses.size).toBe(0);
+    it('should initialize empty userSockets map', () => {
+      expect((unifiedProxy as any).userSockets.size).toBe(0);
     });
 
-    it('should initialize empty userConnections map', () => {
-      expect((unifiedProxy as any).userConnections.size).toBe(0);
+    it('should initialize empty udpSessions map', () => {
+      expect((unifiedProxy as any).udpSessions.size).toBe(0);
     });
 
-    it('should initialize empty userTcpSockets map', () => {
-      expect((unifiedProxy as any).userTcpSockets.size).toBe(0);
+    it('should initialize empty udpConnectionToSession map', () => {
+      expect((unifiedProxy as any).udpConnectionToSession.size).toBe(0);
     });
   });
 
-  describe('detectHttpProtocol', () => {
-    it('should detect GET request', () => {
+  describe('detectProtocol', () => {
+    it('should detect GET request as HTTP', () => {
       const data = Buffer.from('GET / HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect POST request', () => {
+    it('should detect POST request as HTTP', () => {
       const data = Buffer.from('POST /api HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect PUT request', () => {
+    it('should detect PUT request as HTTP', () => {
       const data = Buffer.from('PUT /resource HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect DELETE request', () => {
+    it('should detect DELETE request as HTTP', () => {
       const data = Buffer.from('DELETE /resource HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect HEAD request', () => {
+    it('should detect HEAD request as HTTP', () => {
       const data = Buffer.from('HEAD / HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect OPTIONS request', () => {
+    it('should detect OPTIONS request as HTTP', () => {
       const data = Buffer.from('OPTIONS * HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect PATCH request', () => {
+    it('should detect PATCH request as HTTP', () => {
       const data = Buffer.from('PATCH /resource HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should detect TRACE request', () => {
-      const data = Buffer.from('TRACE / HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
-    });
-
-    it('should detect CONNECT request (for HTTPS proxy)', () => {
+    it('should detect CONNECT request as HTTP', () => {
       const data = Buffer.from('CONNECT example.com:443 HTTP/1.1\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(true);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('http');
     });
 
-    it('should return false for non-HTTP data', () => {
+    it('should detect WebSocket upgrade request', () => {
+      const data = Buffer.from('GET /ws HTTP/1.1\r\nHost: localhost\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n');
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('websocket');
+    });
+
+    it('should return tcp for non-HTTP data', () => {
       const data = Buffer.from('\x00\x01\x02\x03'); // Binary data
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(false);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('tcp');
     });
 
-    it('should return false for SSH handshake', () => {
+    it('should return tcp for SSH handshake', () => {
       const data = Buffer.from('SSH-2.0-OpenSSH_8.0\r\n');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(false);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('tcp');
     });
 
-    it('should return false for data shorter than 4 bytes', () => {
+    it('should return tcp for data shorter than 4 bytes', () => {
       const data = Buffer.from('GET');
-      expect((unifiedProxy as any).detectHttpProtocol(data)).toBe(false);
+      expect((unifiedProxy as any).detectProtocol(data)).toBe('tcp');
     });
   });
 
-  describe('handleClientResponse', () => {
-    it('should resolve pending response promise', () => {
-      const connectionId = 'test-conn-id';
-      const mockWs = new EventEmitter();
-      mockWs.readyState = 1;
-      mockWs.send = vi.fn();
-
-      const testClient = sessionManager.createSession(mockWs as any);
-      sessionManager.authenticateClient(testClient);
-
-      // 创建等待响应的 Promise
-      const responsePromise = (unifiedProxy as any).waitForResponse(connectionId, testClient);
-
-      // 模拟客户端响应
-      const responseData = {
-        statusCode: 200,
-        headers: { 'content-type': 'application/json' },
-        body: Buffer.from('{"success":true}').toString('base64'),
-      };
-
-      setTimeout(() => {
-        (unifiedProxy as any).handleClientResponse(connectionId, responseData);
-      }, 10);
-
-      return responsePromise.then(response => {
-        expect(response.statusCode).toBe(200);
-        expect(response.headers['content-type']).toBe('application/json');
-      });
-    });
-
-    it('should ignore response for non-existent connection', () => {
-      expect(() => {
-        (unifiedProxy as any).handleClientResponse('non-existent', {});
-      }).not.toThrow();
-    });
-  });
-
-  describe('handleClientData', () => {
-    it('should forward data to user WebSocket connection', () => {
-      const connectionId = 'ws-conn-test';
-      const mockUserWs = {
-        readyState: 1,
-        send: vi.fn(),
-      };
-      (unifiedProxy as any).userConnections.set(connectionId, mockUserWs as any);
-
-      const testData = Buffer.from('test websocket data');
-      (unifiedProxy as any).handleClientData(connectionId, testData);
-
-      expect(mockUserWs.send).toHaveBeenCalledWith(testData);
-    });
-
-    it('should handle non-existent connection gracefully', () => {
-      const testData = Buffer.from('data');
-
-      expect(() => {
-        (unifiedProxy as any).handleClientData('non-existent', testData);
-      }).not.toThrow();
-    });
-  });
-
-  describe('handleTcpData', () => {
+  describe('handleDataFromClient', () => {
     it('should forward data to user TCP socket', () => {
       const connectionId = 'tcp-conn-test';
       const mockSocket = {
         destroyed: false,
         write: vi.fn(),
       };
-      (unifiedProxy as any).userTcpSockets.set(connectionId, mockSocket as any);
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
 
       const testData = Buffer.from('test tcp data');
-      (unifiedProxy as any).handleTcpData(connectionId, testData);
+      (unifiedProxy as any).handleDataFromClient(connectionId, testData);
 
       expect(mockSocket.write).toHaveBeenCalledWith(testData);
     });
@@ -205,146 +148,56 @@ describe('UnifiedProxyHandler', () => {
         destroyed: true,
         write: vi.fn(),
       };
-      (unifiedProxy as any).userTcpSockets.set(connectionId, mockSocket as any);
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
 
       const testData = Buffer.from('data');
-      (unifiedProxy as any).handleTcpData(connectionId, testData);
+      (unifiedProxy as any).handleDataFromClient(connectionId, testData);
 
       expect(mockSocket.write).not.toHaveBeenCalled();
     });
 
-    it('should handle non-existent TCP connection gracefully', () => {
+    it('should handle non-existent connection gracefully', () => {
       const testData = Buffer.from('data');
 
       expect(() => {
-        (unifiedProxy as any).handleTcpData('non-existent', testData);
+        (unifiedProxy as any).handleDataFromClient('non-existent', testData);
       }).not.toThrow();
     });
   });
 
   describe('handleClientClose', () => {
-    it('should close user WebSocket connection', () => {
-      const connectionId = 'ws-close-test';
-      const mockUserWs = {
-        readyState: 1,
-        close: vi.fn(),
-      };
-      (unifiedProxy as any).userConnections.set(connectionId, mockUserWs as any);
-
-      (unifiedProxy as any).handleClientClose(connectionId, 1000);
-
-      expect(mockUserWs.close).toHaveBeenCalledWith(1000);
-      expect((unifiedProxy as any).userConnections.has(connectionId)).toBe(false);
-    });
-
     it('should destroy user TCP socket', () => {
       const connectionId = 'tcp-close-test';
       const mockSocket = {
         destroy: vi.fn(),
       };
-      (unifiedProxy as any).userTcpSockets.set(connectionId, mockSocket as any);
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
 
-      (unifiedProxy as any).handleClientClose(connectionId, 1000);
+      unifiedProxy.handleClientClose(connectionId);
 
       expect(mockSocket.destroy).toHaveBeenCalled();
-      expect((unifiedProxy as any).userTcpSockets.has(connectionId)).toBe(false);
     });
 
     it('should handle non-existent connection gracefully', () => {
       expect(() => {
-        (unifiedProxy as any).handleClientClose('non-existent');
+        unifiedProxy.handleClientClose('non-existent');
       }).not.toThrow();
-    });
-  });
-
-  describe('handleClientStreamData', () => {
-    it('should write stream data to response', () => {
-      const connectionId = 'stream-conn-test';
-      const mockRes = {
-        writableEnded: false,
-        write: vi.fn(),
-      };
-      (unifiedProxy as any).streamingResponses.set(connectionId, mockRes as any);
-
-      const streamData = Buffer.from('data: event\n\n');
-      (unifiedProxy as any).handleClientStreamData(connectionId, streamData);
-
-      expect(mockRes.write).toHaveBeenCalledWith(streamData);
-    });
-
-    it('should not write to ended response', () => {
-      const connectionId = 'stream-conn-ended';
-      const mockRes = {
-        writableEnded: true,
-        write: vi.fn(),
-      };
-      (unifiedProxy as any).streamingResponses.set(connectionId, mockRes as any);
-
-      const streamData = Buffer.from('data');
-      (unifiedProxy as any).handleClientStreamData(connectionId, streamData);
-
-      expect(mockRes.write).not.toHaveBeenCalled();
-    });
-
-    it('should handle non-existent stream gracefully', () => {
-      const streamData = Buffer.from('data');
-
-      expect(() => {
-        (unifiedProxy as any).handleClientStreamData('non-existent', streamData);
-      }).not.toThrow();
-    });
-  });
-
-  describe('handleClientStreamEnd', () => {
-    it('should end streaming response', () => {
-      const connectionId = 'stream-end-test';
-      const mockRes = {
-        writableEnded: false,
-        end: vi.fn(),
-      };
-      (unifiedProxy as any).streamingResponses.set(connectionId, mockRes as any);
-
-      (unifiedProxy as any).handleClientStreamEnd(connectionId);
-
-      expect(mockRes.end).toHaveBeenCalled();
-    });
-
-    it('should not end already ended response', () => {
-      const connectionId = 'stream-end-ended';
-      const mockRes = {
-        writableEnded: true,
-        end: vi.fn(),
-      };
-      (unifiedProxy as any).streamingResponses.set(connectionId, mockRes as any);
-
-      (unifiedProxy as any).handleClientStreamEnd(connectionId);
-
-      expect(mockRes.end).not.toHaveBeenCalled();
     });
   });
 
   describe('cleanupConnection', () => {
-    it('should remove from userConnections', () => {
+    it('should remove from userSockets', () => {
       const connectionId = 'cleanup-test';
-      (unifiedProxy as any).userConnections.set(connectionId, {} as any);
+      (unifiedProxy as any).userSockets.set(connectionId, {} as any);
 
       (unifiedProxy as any).cleanupConnection(connectionId);
 
-      expect((unifiedProxy as any).userConnections.has(connectionId)).toBe(false);
-    });
-
-    it('should remove from streamingResponses', () => {
-      const connectionId = 'cleanup-stream-test';
-      (unifiedProxy as any).streamingResponses.set(connectionId, {} as any);
-
-      (unifiedProxy as any).cleanupConnection(connectionId);
-
-      expect((unifiedProxy as any).streamingResponses.has(connectionId)).toBe(false);
+      expect((unifiedProxy as any).userSockets.has(connectionId)).toBe(false);
     });
 
     it('should remove from session manager', () => {
       const connectionId = 'cleanup-session-test';
-      sessionManager.addConnection(clientId, connectionId, '127.0.0.1', 'http');
+      sessionManager.addConnection(clientId, connectionId, '127.0.0.1', 'tcp');
 
       (unifiedProxy as any).cleanupConnection(connectionId);
 
@@ -352,29 +205,37 @@ describe('UnifiedProxyHandler', () => {
     });
   });
 
-  describe('cleanupTcpConnection', () => {
-    it('should remove from userTcpSockets', () => {
-      const connectionId = 'cleanup-tcp-test';
-      (unifiedProxy as any).userTcpSockets.set(connectionId, {} as any);
+  describe('cleanupUdpSession', () => {
+    it('should remove UDP session and related mappings', () => {
+      const sessionKey = '10.0.0.1:5000';
+      const connectionId = 'udp-conn-test';
 
-      (unifiedProxy as any).cleanupTcpConnection(connectionId);
+      const session = {
+        connectionId,
+        address: '10.0.0.1',
+        port: 5000,
+        timer: setTimeout(() => {}, 30000),
+      };
 
-      expect((unifiedProxy as any).userTcpSockets.has(connectionId)).toBe(false);
+      (unifiedProxy as any).udpSessions.set(sessionKey, session);
+      (unifiedProxy as any).udpConnectionToSession.set(connectionId, { port: 8080, sessionKey });
+
+      (unifiedProxy as any).cleanupUdpSession(sessionKey);
+
+      expect((unifiedProxy as any).udpSessions.has(sessionKey)).toBe(false);
+      expect((unifiedProxy as any).udpConnectionToSession.has(connectionId)).toBe(false);
     });
 
-    it('should remove from session manager', () => {
-      const connectionId = 'cleanup-tcp-session-test';
-      sessionManager.addConnection(clientId, connectionId, '127.0.0.1', 'tcp');
-
-      (unifiedProxy as any).cleanupTcpConnection(connectionId);
-
-      expect(sessionManager.getStats().totalConnections).toBe(0);
+    it('should handle non-existent session gracefully', () => {
+      expect(() => {
+        (unifiedProxy as any).cleanupUdpSession('non-existent');
+      }).not.toThrow();
     });
   });
 
   describe('notifyClientClose', () => {
     it('should send CONNECTION_CLOSE message to client', () => {
-      (unifiedProxy as any).notifyClientClose(clientId, 'test-conn', 1000);
+      (unifiedProxy as any).notifyClientClose(clientId, 'test-conn');
 
       expect(mockClientSocket.send).toHaveBeenCalled();
 
@@ -387,33 +248,22 @@ describe('UnifiedProxyHandler', () => {
       mockClientSocket.readyState = 0; // CONNECTING
       mockClientSocket.send.mockClear();
 
-      (unifiedProxy as any).notifyClientClose(clientId, 'test-conn', 1000);
+      (unifiedProxy as any).notifyClientClose(clientId, 'test-conn');
 
       expect(mockClientSocket.send).not.toHaveBeenCalled();
     });
   });
 
-  describe('forwardToClient', () => {
-    it('should send data via WebSocket when client is connected', () => {
-      (unifiedProxy as any).forwardToClient(clientId, 'test-conn', Buffer.from('test data'));
-
-      expect(mockClientSocket.send).toHaveBeenCalled();
-
-      const sentData = JSON.parse(mockClientSocket.send.mock.calls[0][0]);
-      expect(sentData.type).toBe('connection_data');
-      expect(sentData.connectionId).toBe('test-conn');
+  describe('getActivePorts', () => {
+    it('should return empty array when no proxies exist', () => {
+      expect(unifiedProxy.getActivePorts()).toEqual([]);
     });
-  });
 
-  describe('forwardTcpDataToClient', () => {
-    it('should send TCP data via WebSocket', () => {
-      (unifiedProxy as any).forwardTcpDataToClient(clientId, 'tcp-conn', Buffer.from('tcp data'));
+    it('should return ports of active proxies', () => {
+      (unifiedProxy as any).proxies.set(8080, {});
+      (unifiedProxy as any).proxies.set(9090, {});
 
-      expect(mockClientSocket.send).toHaveBeenCalled();
-
-      const sentData = JSON.parse(mockClientSocket.send.mock.calls[0][0]);
-      expect(sentData.type).toBe('tcp_data');
-      expect(sentData.connectionId).toBe('tcp-conn');
+      expect(unifiedProxy.getActivePorts()).toEqual([8080, 9090]);
     });
   });
 });

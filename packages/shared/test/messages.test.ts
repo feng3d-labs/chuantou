@@ -15,13 +15,9 @@ import {
   UnregisterMessage,
   HeartbeatMessage,
   HeartbeatRespMessage,
-  HttpHeaders,
   NewConnectionMessage,
-  HttpResponseData,
   ConnectionCloseMessage,
   ConnectionErrorMessage,
-  TcpDataMessage,
-  TcpDataRespMessage,
   AnyMessage,
   isMessage,
   isMessageType,
@@ -50,11 +46,6 @@ describe('messages - MessageType', () => {
     expect(MessageType.CONNECTION_CLOSE).toBe('connection_close');
     expect(MessageType.CONNECTION_ERROR).toBe('connection_error');
   });
-
-  it('should have correct TCP data message types', () => {
-    expect(MessageType.TCP_DATA).toBe('tcp_data');
-    expect(MessageType.TCP_DATA_RESP).toBe('tcp_data_resp');
-  });
 });
 
 describe('messages - Protocol type', () => {
@@ -62,10 +53,12 @@ describe('messages - Protocol type', () => {
     const http: Protocol = 'http';
     const ws: Protocol = 'websocket';
     const tcp: Protocol = 'tcp';
+    const udp: Protocol = 'udp';
 
     expect(http).toBe('http');
     expect(ws).toBe('websocket');
     expect(tcp).toBe('tcp');
+    expect(udp).toBe('udp');
   });
 });
 
@@ -177,6 +170,15 @@ describe('messages - createMessage', () => {
     expect(msg.payload.success).toBe(true);
   });
 
+  it('should create AUTH_RESP message with clientId', () => {
+    const msg = createMessage<AuthRespMessage>(MessageType.AUTH_RESP, {
+      success: true,
+      clientId: 'client-123',
+    });
+
+    expect(msg.payload.clientId).toBe('client-123');
+  });
+
   it('should create REGISTER message', () => {
     const msg = createMessage<RegisterMessage>(MessageType.REGISTER, {
       remotePort: 8080,
@@ -219,41 +221,54 @@ describe('messages - createMessage', () => {
     expect(msg.payload.timestamp).toBe(timestamp);
   });
 
+  it('should create NEW_CONNECTION message for TCP', () => {
+    const msg = createMessage<NewConnectionMessage>(MessageType.NEW_CONNECTION, {
+      connectionId: 'conn-789',
+      protocol: 'tcp',
+      remotePort: 8080,
+      remoteAddress: '192.168.1.100',
+    });
+
+    expect(msg.type).toBe(MessageType.NEW_CONNECTION);
+    expect(msg.payload.protocol).toBe('tcp');
+    expect(msg.payload.connectionId).toBe('conn-789');
+    expect(msg.payload.remotePort).toBe(8080);
+    expect(msg.payload.remoteAddress).toBe('192.168.1.100');
+  });
+
   it('should create NEW_CONNECTION message for HTTP', () => {
     const msg = createMessage<NewConnectionMessage>(MessageType.NEW_CONNECTION, {
       connectionId: 'conn-123',
       protocol: 'http',
-      method: 'GET',
-      url: '/test',
-      headers: { 'content-type': 'application/json' },
+      remotePort: 80,
     });
 
     expect(msg.type).toBe(MessageType.NEW_CONNECTION);
     expect(msg.payload.protocol).toBe('http');
-    expect(msg.payload.method).toBe('GET');
   });
 
   it('should create NEW_CONNECTION message for WebSocket', () => {
     const msg = createMessage<NewConnectionMessage>(MessageType.NEW_CONNECTION, {
       connectionId: 'conn-456',
       protocol: 'websocket',
-      url: '/ws',
-      wsHeaders: { 'upgrade': 'websocket' },
+      remotePort: 8080,
     });
 
     expect(msg.type).toBe(MessageType.NEW_CONNECTION);
     expect(msg.payload.protocol).toBe('websocket');
   });
 
-  it('should create NEW_CONNECTION message for TCP', () => {
+  it('should create NEW_CONNECTION message for UDP', () => {
     const msg = createMessage<NewConnectionMessage>(MessageType.NEW_CONNECTION, {
-      connectionId: 'conn-789',
-      protocol: 'tcp',
-      remoteAddress: '192.168.1.100',
+      connectionId: 'conn-udp',
+      protocol: 'udp',
+      remotePort: 5353,
+      remoteAddress: '10.0.0.1',
     });
 
     expect(msg.type).toBe(MessageType.NEW_CONNECTION);
-    expect(msg.payload.protocol).toBe('tcp');
+    expect(msg.payload.protocol).toBe('udp');
+    expect(msg.payload.remotePort).toBe(5353);
   });
 
   it('should create CONNECTION_CLOSE message', () => {
@@ -274,28 +289,6 @@ describe('messages - createMessage', () => {
 
     expect(msg.type).toBe(MessageType.CONNECTION_ERROR);
     expect(msg.payload.error).toBe('Connection timeout');
-  });
-
-  it('should create TCP_DATA message', () => {
-    const data = Buffer.from('test data').toString('base64');
-    const msg = createMessage<TcpDataMessage>(MessageType.TCP_DATA, {
-      connectionId: 'conn-123',
-      data,
-    });
-
-    expect(msg.type).toBe(MessageType.TCP_DATA);
-    expect(msg.payload.data).toBe(data);
-  });
-
-  it('should create TCP_DATA_RESP message', () => {
-    const data = Buffer.from('response data').toString('base64');
-    const msg = createMessage<TcpDataRespMessage>(
-      MessageType.TCP_DATA_RESP,
-      { connectionId: 'conn-123', data }
-    );
-
-    expect(msg.type).toBe(MessageType.TCP_DATA_RESP);
-    expect(msg.payload.data).toBe(data);
   });
 
   it('should accept custom message ID', () => {
@@ -362,61 +355,6 @@ describe('messages - deserializeMessage', () => {
 });
 
 describe('messages - Message interfaces', () => {
-  describe('HttpHeaders', () => {
-    it('should accept string header values', () => {
-      const headers: HttpHeaders = {
-        'content-type': 'application/json',
-        'user-agent': 'test',
-      };
-      expect(headers['content-type']).toBe('application/json');
-    });
-
-    it('should accept string array header values', () => {
-      const headers: HttpHeaders = {
-        'set-cookie': ['cookie1=value1', 'cookie2=value2'],
-      };
-      expect(Array.isArray(headers['set-cookie'])).toBe(true);
-    });
-
-    it('should accept undefined values', () => {
-      const headers: HttpHeaders = {
-        'content-type': 'text/html',
-        'x-custom': undefined,
-      };
-      expect(headers['x-custom']).toBeUndefined();
-    });
-  });
-
-  describe('HttpResponseData', () => {
-    it('should create valid HTTP response data', () => {
-      const response: HttpResponseData = {
-        statusCode: 200,
-        headers: { 'content-type': 'application/json' },
-        body: '{"success":true}',
-      };
-      expect(response.statusCode).toBe(200);
-    });
-
-    it('should accept Buffer body', () => {
-      const body = Buffer.from('test');
-      const response: HttpResponseData = {
-        statusCode: 200,
-        headers: {},
-        body,
-      };
-      expect(Buffer.isBuffer(response.body)).toBe(true);
-    });
-
-    it('should accept string body', () => {
-      const response: HttpResponseData = {
-        statusCode: 200,
-        headers: {},
-        body: 'test',
-      };
-      expect(typeof response.body).toBe('string');
-    });
-  });
-
   describe('AnyMessage union', () => {
     it('should accept all message types', () => {
       const messages: AnyMessage[] = [
@@ -441,17 +379,17 @@ describe('messages - Message interfaces', () => {
 
 describe('messages - Integration scenarios', () => {
   it('should handle complete authentication flow', () => {
-    // 客户端发送认证请求
     const authReq = createMessage<AuthMessage>(MessageType.AUTH, {
       token: 'client-token',
     });
 
-    // 服务端返回认证响应
     const authResp = createMessage<AuthRespMessage>(MessageType.AUTH_RESP, {
       success: true,
+      clientId: 'client-abc',
     }, authReq.id);
 
     expect(authResp.id).toBe(authReq.id);
+    expect(authResp.payload.clientId).toBe('client-abc');
   });
 
   it('should handle complete registration flow', () => {
@@ -491,10 +429,9 @@ describe('messages - Integration scenarios', () => {
   it('should handle connection flow', () => {
     const newConn = createMessage<NewConnectionMessage>(MessageType.NEW_CONNECTION, {
       connectionId: 'conn-123',
-      protocol: 'http',
-      method: 'GET',
-      url: '/api/test',
-      headers: {},
+      protocol: 'tcp',
+      remotePort: 8080,
+      remoteAddress: '192.168.1.100',
     });
 
     const closeConn = createMessage<ConnectionCloseMessage>(

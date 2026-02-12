@@ -134,7 +134,7 @@ export const DEFAULT_CONFIG = {
  *
  * 运行时自动检测的传输协议类型。
  */
-export type ConnectionProtocol = 'http' | 'websocket' | 'tcp';
+export type ConnectionProtocol = 'http' | 'websocket' | 'tcp' | 'udp';
 
 /**
  * 代理配置接口
@@ -208,7 +208,7 @@ export interface ConnectionInfo {
   /** 发起连接的远程客户端 IP 地址 */
   remoteAddress: string;
   /** 该连接使用的传输协议类型 */
-  protocol: 'http' | 'websocket' | 'tcp';
+  protocol: 'http' | 'websocket' | 'tcp' | 'udp';
   /** 连接建立的时间戳（Unix 毫秒） */
   createdAt: number;
 }

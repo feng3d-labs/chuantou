@@ -13,3 +13,5 @@ export * from './messages.js';
 export * from './protocol.js';
 /** 导出日志工具 */
 export * from './logger.js';
+/** 导出数据通道二进制帧协议工具 */
+export * from './data-channel.js';

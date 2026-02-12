@@ -190,9 +190,9 @@ export class SessionManager {
    * @param clientId - 客户端唯一标识 ID
    * @param connectionId - 连接唯一标识 ID
    * @param remoteAddress - 远程连接的 IP 地址
-   * @param protocol - 连接协议类型，`'http'`、`'websocket'` 或 `'tcp'`
+   * @param protocol - 连接协议类型
    */
-  addConnection(clientId: string, connectionId: string, remoteAddress: string, protocol: 'http' | 'websocket' | 'tcp'): void {
+  addConnection(clientId: string, connectionId: string, remoteAddress: string, protocol: 'http' | 'websocket' | 'tcp' | 'udp'): void {
     const client = this.clients.get(clientId);
     if (client) {
       const connectionInfo: ConnectionInfo = {
