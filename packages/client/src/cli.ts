@@ -30,14 +30,24 @@ const LOG_FILE = join(CLIENT_DIR, 'client.log');
 /** 默认配置文件路径 */
 const DEFAULT_CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 
+/** 单个代理配置接口 */
+interface ProxyEntry {
+  /** 远程端口 */
+  remotePort: number;
+  /** 本地端口 */
+  localPort: number;
+  /** 本地主机（可选） */
+  localHost?: string;
+}
+
 /** 客户端配置接口 */
 interface ClientConfig {
   /** 服务器地址 */
   server: string;
   /** 认证令牌 */
   token?: string;
-  /** 代理配置（格式: remotePort:localPort[:localHost]，逗号分隔多个） */
-  proxies?: string;
+  /** 代理配置列表 */
+  proxies?: ProxyEntry[];
 }
 
 /** 客户端信息接口 */
@@ -141,15 +151,43 @@ async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: b
 }
 
 /**
+ * 将代理数组转换为命令行参数字符串
+ */
+function proxiesToString(proxies: ProxyEntry[] | undefined): string | undefined {
+  if (!proxies || proxies.length === 0) return undefined;
+  return proxies.map(p =>
+    p.localHost ? `${p.remotePort}:${p.localPort}:${p.localHost}` : `${p.remotePort}:${p.localPort}`
+  ).join(',');
+}
+
+/**
+ * 解析代理字符串为代理列表
+ */
+function parseProxiesString(proxiesStr: string): ProxyEntry[] {
+  return proxiesStr.split(',').map(part => {
+    const segments = part.split(':');
+    const entry: ProxyEntry = {
+      remotePort: parseInt(segments[0], 10),
+      localPort: parseInt(segments[1], 10),
+    };
+    if (segments.length > 2) {
+      entry.localHost = segments[2];
+    }
+    return entry;
+  });
+}
+
+/**
  * 运行客户端（前台模式）
  */
 async function runServe(
   serverUrl: string,
   token: string | undefined,
-  proxiesStr: string | undefined,
+  proxies: ProxyEntry[] | undefined,
   shouldOpenBrowser?: boolean,
 ): Promise<void> {
   // 设置 process.argv 供 Config.load 读取
+  const proxiesStr = proxiesToString(proxies);
   process.argv = [
     process.argv[0],
     process.argv[1],
@@ -211,14 +249,27 @@ serveCmd.action(async (options) => {
   // 命令行参数覆盖配置文件参数
   const serverUrl = configOpts?.server || options.server;
   const token = configOpts?.token || options.token;
-  const proxiesStr = configOpts?.proxies || options.proxies;
+  let proxyList: ProxyEntry[] | undefined;
+  if (typeof configOpts?.proxies === 'string') {
+    // 配置文件中的 proxies 是字符串格式，需要解析
+    proxyList = parseProxiesString(configOpts.proxies);
+  } else if (configOpts?.proxies) {
+    // 配置文件中的 proxies 已经是数组格式
+    proxyList = configOpts.proxies;
+  } else if (typeof options.proxies === 'string') {
+    // 命令行参数中的 proxies 是字符串格式，需要解析
+    proxyList = parseProxiesString(options.proxies);
+  } else {
+    // 命令行参数中的 proxies 可能已经是数组格式（但实际不应该是）
+    proxyList = options.proxies;
+  }
 
   if (!serverUrl) {
     console.log(chalk.red('错误: 必须指定服务器地址（--config 或 --server）'));
     process.exit(1);
   }
 
-  await runServe(serverUrl, token, proxiesStr);
+  await runServe(serverUrl, token, proxyList);
 });
 
 // ====== start 命令（启动）======
@@ -281,7 +332,7 @@ startCmd.action(async (options) => {
   // 3. 读取配置或从命令行参数获取
   let serverUrl: string | undefined;
   let token: string | undefined;
-  let proxies: string | undefined;
+  let proxyList: ProxyEntry[] | undefined;
 
   if (useCustomConfig || (!options.config && !process.argv.includes('--server') && !process.argv.includes('-s'))) {
     // 从配置文件读取
@@ -290,7 +341,7 @@ startCmd.action(async (options) => {
       const config: ClientConfig = JSON.parse(configContent);
       serverUrl = config.server;
       token = config.token;
-      proxies = config.proxies;
+      proxyList = config.proxies;
       console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
     } catch {
       console.log(chalk.red(`错误: 配置文件不存在或格式错误: ${configPath}`));
@@ -301,7 +352,10 @@ startCmd.action(async (options) => {
     const opts = startCmd.opts();
     serverUrl = opts.server;
     token = opts.token;
-    proxies = opts.proxies;
+    // 解析代理字符串为代理列表
+    if (opts.proxies) {
+      proxyList = parseProxiesString(opts.proxies);
+    }
 
     if (!serverUrl) {
       console.log(chalk.red('错误: 必须指定服务器地址（--server 或使用配置文件）'));
@@ -311,7 +365,7 @@ startCmd.action(async (options) => {
     // 保存到默认配置文件（用于开机启动）
     const configToSave: ClientConfig = { server: serverUrl };
     if (token) configToSave.token = token;
-    if (proxies) configToSave.proxies = proxies;
+    if (proxyList) configToSave.proxies = proxyList;
     mkdirSync(CLIENT_DIR, { recursive: true });
     writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(configToSave, null, 2));
     console.log(chalk.gray(`配置已保存到: ${DEFAULT_CONFIG_FILE}`));
