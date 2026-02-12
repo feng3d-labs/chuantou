@@ -221,8 +221,13 @@ async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: b
 /**
  * 脚本路径
  */
-const scriptPath = fileURLToPath(import.meta.url);
+const cliPath = fileURLToPath(import.meta.url);
+// index.js 是实际运行客户端的入口（包含管理服务器）
+const indexPath = join(dirname(cliPath), 'index.js');
 const nodePath = process.execPath;
+
+// 引入 dirname 函数
+import { dirname } from 'path';
 
 /**
  * 主程序入口
@@ -291,7 +296,7 @@ const startCmd = program.command('start')
     const logFd = openSync(LOG_FILE, 'a');
 
     // 启动守护进程
-    const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
+    const child = spawn(nodePath, [indexPath, ...serveArgs], {
       detached: true,
       stdio: ['ignore', logFd, logFd],
     });
@@ -319,7 +324,7 @@ const startCmd = program.command('start')
         registerBoot({
           isServer: false,
           nodePath,
-          scriptPath,
+          scriptPath: indexPath,
           args: serveArgs,
         });
         console.log(chalk.green('已启用开机自启动'));
@@ -397,7 +402,8 @@ const restartCmd = program.command('restart')
     removePidFile();
 
     // 重新启动（不带参数，使用配置文件）
-    const startChild = spawn(nodePath, [scriptPath, 'start'], {
+    // 启动一个新的 start 命令进程
+    const startChild = spawn(nodePath, [cliPath, 'start'], {
       detached: true,
       stdio: 'ignore',
     });
@@ -768,7 +774,7 @@ bootCmd.command('enable')
       registerBoot({
         isServer: false,
         nodePath,
-        scriptPath,
+        scriptPath: indexPath,
         args: info.args || [],
       });
       console.log(chalk.green('已启用开机自启动'));

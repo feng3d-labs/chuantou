@@ -172,7 +172,8 @@ async function main(): Promise<void> {
 }
 
 // 检查是否作为主模块运行
-const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+// 使用更简单的方式：通过检查是否直接运行此文件
+const isMainModule = process.argv[1] && process.argv[1].endsWith('index.js');
 
 if (isMainModule) {
   main().catch((error) => {
