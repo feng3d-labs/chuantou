@@ -137,7 +137,7 @@ export const DEFAULT_CONFIG = {
 export type ConnectionProtocol = 'http' | 'websocket' | 'tcp' | 'udp';
 
 /**
- * 代理配置接口
+ * 代理配置接口（反向代理模式）
  *
  * 描述单条代理隧道的配置，指定远程端口到本地端口的映射关系。
  * 每个端口同时支持 HTTP、WebSocket 和 TCP 所有协议。
@@ -151,6 +151,24 @@ export interface ProxyConfig {
   localPort: number;
   /** 本地服务的主机地址，默认为 localhost */
   localHost?: string;
+}
+
+/**
+ * 正向穿透代理配置接口
+ *
+ * 描述从本地端口到远程客户端端口的穿透映射。
+ */
+export interface ForwardProxyConfig {
+  /** 代理唯一标识符 */
+  id?: string;
+  /** 本地监听端口号，用户连接此端口 */
+  localPort: number;
+  /** 目标客户端 ID */
+  targetClientId: string;
+  /** 目标客户端的端口号 */
+  targetPort: number;
+  /** 是否启用 */
+  enabled?: string;
 }
 
 /**

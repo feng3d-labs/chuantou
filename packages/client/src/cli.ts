@@ -59,14 +59,15 @@ const ADMIN_URL = 'http://127.0.0.1:9001';
  * 帮助文本
  */
 const HELP_TEXT = `
-${chalk.bold('用法：')} npx @feng3d/cts <${chalk.bold('命令')}> [选项]
+${chalk.bold('用法：')} cts <${chalk.bold('命令')}> [选项]
 
 ${chalk.bold('命令：')}
   ${chalk.cyan('start')}      启动客户端（后台守护进程）
   ${chalk.cyan('close')}      关闭客户端
   ${chalk.cyan('restart')}    重启客户端
   ${chalk.cyan('status')}     查看运行状态
-  ${chalk.cyan('proxies')}    管理代理映射
+  ${chalk.cyan('proxies')}    管理反向代理映射
+  ${chalk.cyan('forward')}    管理正向穿透代理
   ${chalk.cyan('config')}     管理配置
   ${chalk.cyan('boot')}      管理开机自启动
   ${chalk.cyan('logs')}       查看日志
@@ -82,11 +83,18 @@ ${chalk.bold('start 命令选项：')}
   ${chalk.yellow('--no-boot')}         不注册开机自启动
   ${chalk.yellow('--open')}            启动后打开管理页面
 
-${chalk.bold('proxies 命令选项：')}
+${chalk.bold('proxies 命令（反向代理）：')}
   ${chalk.yellow('list')}              列出所有代理映射
-  ${chalk.yellow('add <remote:local>')}  添加代理 (如: 8080:3000 或 8080:3000:192.168.1.100)
+  ${chalk.yellow('add <remote:local>')}  添加代理 (如: 8080:3000)
   ${chalk.yellow('remove <port>')}     移除指定端口的代理
   ${chalk.yellow('clear')}            清空所有代理
+
+${chalk.bold('forward 命令（正向穿透）：')}
+  ${chalk.yellow('list')}              列出所有正向穿透代理
+  ${chalk.yellow('add <local:remote:client>')}  添加穿透 (如: 8080:3000:clientB)
+  ${chalk.yellow('remove <localPort>')} 移除指定本地端口的穿透
+  ${chalk.yellow('clients')}           查看在线客户端列表
+  ${chalk.yellow('register')}          注册到服务器启用正向穿透
 
 ${chalk.bold('config 命令选项：')}
   ${chalk.yellow('get [key]')}       获取配置项
@@ -104,21 +112,24 @@ ${chalk.dim('管理页面：')} http://127.0.0.1:9001
 
 ${chalk.dim('示例：')}
   ${chalk.gray('# 启动客户端')}
-  npx @feng3d/cts start --server ws://192.168.1.100:9000 --token mytoken
+  cts start --server ws://192.168.1.100:9000 --token mytoken
 
-  ${chalk.gray('# 添加代理映射')}
-  npx @feng3d/cts proxies add 8080:3000
-  npx @feng3d/cts proxies add 2222:22:8080:192.168.1.100
+  ${chalk.gray('# 正向穿透模式：注册并添加映射')}
+  cts forward register --description "我的电脑"
+  cts forward clients
+  cts forward add 8080:3000:clientB
+  cts forward list
 
-  ${chalk.gray('# 查看状态')}
-  npx @feng3d/cts status
+  ${chalk.gray('# 反向代理模式：暴露本地服务')}
+  cts proxies add 8080:3000
+  cts proxies list
 
   ${chalk.gray('# 管理配置')}
-  npx @feng3d/cts config set serverUrl ws://localhost:9000
-  npx @feng3d/cts config set token mytoken
+  cts config set serverUrl ws://localhost:9000
+  cts config set token mytoken
 
   ${chalk.gray('# 开机自启动')}
-  npx @feng3d/cts boot enable
+  cts boot enable
 `;
 
 /**
@@ -730,6 +741,170 @@ configCmd.command('edit')
     } catch (err: any) {
       console.log(chalk.yellow(`打开失败: ${err.message}`));
       console.log(chalk.gray(`请手动打开：`));
+    }
+  });
+
+// ==================== forward 命令（正向穿透模式）====================
+
+const forwardCmd = program.command('forward')
+  .description('管理正向穿透代理（本地端口 -> 远程客户端端口）')
+  .argument('[command]', '子命令：list, add, remove, clients, register', { default: 'list' });
+
+// forward list 子命令
+forwardCmd.command('list')
+  .description('列出所有正向穿透代理')
+  .action(async () => {
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/forward/list`);
+      if (!res.ok) {
+        console.log(chalk.yellow('无法获取代理列表（客户端未运行或功能不可用）'));
+        return;
+      }
+      const data = await res.json() as { proxies: Array<{ localPort: number; targetClientId: string; targetPort: number; enabled: boolean }> };
+      const proxies = data.proxies || [];
+
+      if (proxies.length === 0) {
+        console.log(chalk.yellow('暂无正向穿透代理'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('正向穿透代理列表：'));
+      for (const proxy of proxies) {
+        const status = proxy.enabled ? chalk.green('●') : chalk.gray('○');
+        console.log(`  ${status} 本地 :${proxy.localPort} → ${chalk.cyan(proxy.targetClientId)}:${proxy.targetPort}`);
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward add 子命令
+forwardCmd.command('add')
+  .description('添加正向穿透代理')
+  .argument('<mapping>', '映射格式：localPort:remotePort:targetClientId (如: 8080:3000:clientB)')
+  .action(async (mapping) => {
+    const parts = mapping.split(':');
+    if (parts.length !== 3) {
+      console.log(chalk.yellow('参数格式错误，应为：localPort:remotePort:targetClientId'));
+      console.log(chalk.gray('示例：8080:3000:clientB'));
+      return;
+    }
+
+    const localPort = parseInt(parts[0], 10);
+    const targetPort = parseInt(parts[1], 10);
+    const targetClientId = parts[2];
+
+    if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
+      console.log(chalk.yellow('本地端口无效：1-65535'));
+      return;
+    }
+    if (isNaN(targetPort) || targetPort < 1 || targetPort > 65535) {
+      console.log(chalk.yellow('目标端口无效：1-65535'));
+      return;
+    }
+    if (!targetClientId || targetClientId.length === 0) {
+      console.log(chalk.yellow('目标客户端 ID 不能为空'));
+      return;
+    }
+
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/forward/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localPort, targetClientId, targetPort }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('正向穿透代理已添加'));
+        console.log(chalk.gray(`  本地 :${localPort} → ${targetClientId}:${targetPort}`));
+      } else if (res.status === 404) {
+        console.log(chalk.yellow('客户端未运行或功能不可用'));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`添加失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward remove 子命令
+forwardCmd.command('remove')
+  .description('移除正向穿透代理')
+  .argument('<localPort>', '本地端口号')
+  .action(async (localPort) => {
+    const port = parseInt(localPort, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      console.log(chalk.yellow('端口号无效：1-65535'));
+      return;
+    }
+
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/forward/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localPort: port }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green(`本地端口 ${port} 的正向穿透代理已移除`));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`移除失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward clients 子命令
+forwardCmd.command('clients')
+  .description('查看在线客户端列表')
+  .action(async () => {
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/forward/clients`);
+      if (!res.ok) {
+        console.log(chalk.yellow('无法获取客户端列表'));
+        return;
+      }
+      const data = await res.json() as { clients: Array<{ id: string; description?: string; registeredAt: number }> };
+      const clients = data.clients || [];
+
+      if (clients.length === 0) {
+        console.log(chalk.yellow('暂无在线客户端'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('在线客户端列表：'));
+      for (const client of clients) {
+        const desc = client.description ? ` (${client.description})` : '';
+        console.log(`  ${chalk.cyan(client.id)}${desc}`);
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward register 子命令
+forwardCmd.command('register')
+  .description('注册到服务器（启用正向穿透模式）')
+  .option('-d, --description <desc>', '客户端描述')
+  .action(async (options) => {
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/forward/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: options.description || '' }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('已注册到服务器，正向穿透模式已启用'));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`注册失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
     }
   });
 

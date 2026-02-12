@@ -26,7 +26,8 @@ export { ProxyManager } from './proxy-manager.js';
 export { AdminServer } from './admin-server.js';
 export { UnifiedHandler } from './handlers/unified-handler.js';
 export { IpcHandler } from './ipc-handler.js';
-export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
+export { ForwardProxy } from './forward-proxy.js';
+export type { ClientConfig, ProxyConfig, ForwardProxyConfig } from '@feng3d/chuantou-shared';
 
 /**
  * 客户端主入口函数（独立运行模式）。
@@ -98,6 +99,10 @@ async function main(): Promise<void> {
       if (index !== -1) {
         registeredProxies.splice(index, 1);
       }
+    },
+    // 发送消息回调（用于正向穿透）
+    async (message: any) => {
+      return await controller.sendRequest(message);
     }
   );
 

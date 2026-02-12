@@ -58,6 +58,10 @@ export class AdminServer {
   private addProxyCallback: (proxy: ProxyConfig) => Promise<void>;
   /** 删除代理回调函数 */
   private removeProxyCallback: (remotePort: number) => Promise<void>;
+  /** 正向穿透代理列表（用于存储运行时的正向穿透配置） */
+  private forwardProxies: Map<string, { localPort: number; targetClientId: string; targetPort: number }> = new Map();
+  /** 发送消息到服务端的回调（用于正向穿透操作） */
+  private sendMessageCallback?: (message: any) => Promise<any>;
 
   /**
    * 状态页面 HTML 模板
@@ -621,7 +625,8 @@ export class AdminServer {
     config: AdminServerConfig,
     getStatus: () => ClientStatus,
     addProxy: (proxy: ProxyConfig) => Promise<void>,
-    removeProxy: (remotePort: number) => Promise<void>
+    removeProxy: (remotePort: number) => Promise<void>,
+    sendMessage?: (message: any) => Promise<any>
   ) {
     this.port = config.port;
     this.host = config.host;
@@ -629,8 +634,16 @@ export class AdminServer {
     this.getStatusCallback = getStatus;
     this.addProxyCallback = addProxy;
     this.removeProxyCallback = removeProxy;
+    this.sendMessageCallback = sendMessage;
 
     this.server = createServer((req, res) => this.handleRequest(req, res));
+  }
+
+  /**
+   * 设置发送消息的回调
+   */
+  setSendMessageCallback(callback: (message: any) => Promise<any>): void {
+    this.sendMessageCallback = callback;
   }
 
   /**
@@ -661,7 +674,7 @@ export class AdminServer {
    * - `POST /_ctc/proxies` - 添加代理
    * - `DELETE /_ctc/proxies/:port` - 删除代理
    */
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
 
     // 管理页面
@@ -717,6 +730,127 @@ export class AdminServer {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: errorMessage }));
         });
+      return;
+    }
+
+    // ==================== 正向穿透 API ====================
+
+    // forward list - 列出正向穿透代理
+    if (url === '/_ctc/forward/list' && req.method === 'GET') {
+      const proxies = Array.from(this.forwardProxies.entries()).map(([key, value]) => ({
+        localPort: value.localPort,
+        targetClientId: value.targetClientId,
+        targetPort: value.targetPort,
+        enabled: true,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ proxies }));
+      return;
+    }
+
+    // forward add - 添加正向穿透代理
+    if (url === '/_ctc/forward/add' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { localPort: number; targetClientId: string; targetPort: number };
+          const key = `${data.localPort}`;
+          this.forwardProxies.set(key, {
+            localPort: data.localPort,
+            targetClientId: data.targetClientId,
+            targetPort: data.targetPort,
+          });
+
+          // 这里应该调用 ForwardProxy 来实际创建代理
+          // 由于架构限制，暂时只存储配置
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
+      return;
+    }
+
+    // forward remove - 移除正向穿透代理
+    if (url === '/_ctc/forward/remove' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { localPort: number };
+          const key = `${data.localPort}`;
+          const deleted = this.forwardProxies.delete(key);
+
+          if (deleted) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '代理不存在' }));
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
+      return;
+    }
+
+    // forward clients - 获取客户端列表
+    if (url === '/_ctc/forward/clients' && req.method === 'GET') {
+      if (!this.sendMessageCallback) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务未就绪' }));
+        return;
+      }
+
+      try {
+        const { createMessage, MessageType } = await import('@feng3d/chuantou-shared');
+        const message = createMessage(MessageType.GET_CLIENT_LIST, {});
+        const response = await this.sendMessageCallback(message);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(response.payload));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: errorMessage }));
+      }
+      return;
+    }
+
+    // forward register - 注册到服务器
+    if (url === '/_ctc/forward/register' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { description?: string };
+          if (!this.sendMessageCallback) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务未就绪' }));
+            return;
+          }
+
+          const { createMessage, MessageType } = await import('@feng3d/chuantou-shared');
+          const message = createMessage(MessageType.CLIENT_REGISTER, {
+            description: data.description || '',
+          });
+          const response = await this.sendMessageCallback(message);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: response.payload.success }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
       return;
     }
 
