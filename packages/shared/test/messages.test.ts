@@ -182,7 +182,6 @@ describe('messages - createMessage', () => {
       remotePort: 8080,
       localPort: 3000,
       localHost: 'localhost',
-      protocol: 'http',
     });
 
     expect(msg.type).toBe(MessageType.REGISTER);
@@ -327,7 +326,6 @@ describe('messages - serializeMessage', () => {
         remotePort: 8080,
         localPort: 3000,
         localHost: 'localhost',
-        protocol: 'http',
       },
     };
 
@@ -461,7 +459,6 @@ describe('messages - Integration scenarios', () => {
       remotePort: 8080,
       localPort: 3000,
       localHost: 'localhost',
-      protocol: 'http',
     });
 
     const registerResp = createMessage<RegisterRespMessage>(

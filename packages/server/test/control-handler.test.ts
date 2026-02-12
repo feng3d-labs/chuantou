@@ -106,7 +106,6 @@ describe('ControlHandler', () => {
       const proxyPort = await getRandomPort();
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: proxyPort,
-        protocol: 'http',
         localPort: 3000,
         localHost: 'localhost',
       });
@@ -117,11 +116,10 @@ describe('ControlHandler', () => {
       expect(resp.payload.remotePort).toBe(proxyPort);
     });
 
-    it('已认证客户端应该能注册WebSocket代理', async () => {
+    it('已认证客户端应该能注册代理', async () => {
       const proxyPort = await getRandomPort();
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: proxyPort,
-        protocol: 'websocket',
         localPort: 3001,
         localHost: 'localhost',
       });
@@ -136,7 +134,6 @@ describe('ControlHandler', () => {
       const proxyPort = await getRandomPort();
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: proxyPort,
-        protocol: 'http',
         localPort: 3000,
       });
       const resp = await sendAndWait(ws2, msg);
@@ -149,7 +146,6 @@ describe('ControlHandler', () => {
     it('端口低于1024应该拒绝', async () => {
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: 80,
-        protocol: 'http',
         localPort: 3000,
       });
       const resp = await sendAndWait(ws, msg);
@@ -161,7 +157,6 @@ describe('ControlHandler', () => {
     it('端口高于65535应该拒绝', async () => {
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: 70000,
-        protocol: 'http',
         localPort: 3000,
       });
       const resp = await sendAndWait(ws, msg);
@@ -176,7 +171,6 @@ describe('ControlHandler', () => {
       // 第一个客户端注册端口
       const registerMsg = createMessage(MessageType.REGISTER, {
         remotePort: proxyPort,
-        protocol: 'http',
         localPort: 3000,
       });
       const resp1 = await sendAndWait(ws, registerMsg);
@@ -226,7 +220,6 @@ describe('ControlHandler', () => {
       const proxyPort = await getRandomPort();
       const msg = createMessage(MessageType.REGISTER, {
         remotePort: proxyPort,
-        protocol: 'http',
         localPort: 3000,
       });
       const resp = await sendAndWait(ws, msg);

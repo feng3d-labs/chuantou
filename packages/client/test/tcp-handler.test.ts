@@ -90,7 +90,6 @@ describe('TcpHandler', () => {
       remotePort: 2222,
       localPort: 22,
       localHost: 'localhost',
-      protocol: 'tcp',
     };
 
     // Mock WebSocket
@@ -687,7 +686,6 @@ describe('TcpHandler', () => {
         remotePort: 3333,
         localPort: 3306,
         localHost: 'localhost',
-        protocol: 'tcp' as const,
       };
 
       const handlerModule = require('../dist/handlers/tcp-handler.js');
@@ -718,7 +716,6 @@ describe('TcpHandler', () => {
         remotePort: 4444,
         localPort: 5432,
         localHost: '192.168.1.50',
-        protocol: 'tcp' as const,
       };
 
       const handlerModule = require('../dist/handlers/tcp-handler.js');
