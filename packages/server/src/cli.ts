@@ -339,7 +339,7 @@ startCmd.action(async (options) => {
       console.log(chalk.red('服务器已在运行中'));
       console.log(chalk.gray(`  PID: ${existing.pid}`));
       console.log(chalk.gray(`  端口: ${existing.controlPort}`));
-      console.log(chalk.yellow('如需重启，请先使用 stop 命令停止服务器'));
+      console.log(chalk.yellow('如需重启，请先使用 close 命令关闭服务器'));
       process.exit(1);
     } catch {
       // PID 文件残留，清理后继续
@@ -505,6 +505,13 @@ startCmd.action(async (options) => {
   console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
   console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
+  // 打印控制台网站地址
+  const protocol = tls ? 'https' : 'http';
+  const adminUrl = host === '0.0.0.0'
+    ? `${protocol}://127.0.0.1:${controlPort}/`
+    : `${protocol}://${host}:${controlPort}/`;
+  console.log(chalk.blue(`\n控制台: ${adminUrl}`));
+
   // 9. 打开浏览器
   if (options.open) {
     const protocol = tls ? 'https' : 'http';
@@ -546,6 +553,11 @@ program
       const data = await httpGet(pidInfo.host, pidInfo.controlPort, '/_chuantou/status', pidInfo.tls);
       const status = JSON.parse(data);
 
+      const protocol = pidInfo.tls ? 'https' : 'http';
+      const adminUrl = pidInfo.host === '0.0.0.0'
+        ? `${protocol}://127.0.0.1:${pidInfo.controlPort}/`
+        : `${protocol}://${pidInfo.host}:${pidInfo.controlPort}/`;
+
       console.log(chalk.blue.bold('穿透服务器状态'));
       console.log(chalk.gray(`  运行中: ${status.running ? chalk.green('是') : chalk.red('否')}`));
       console.log(chalk.gray(`  主机: ${status.host}:${status.controlPort}`));
@@ -555,6 +567,9 @@ program
       console.log(chalk.gray(`  端口: ${status.totalPorts}`));
       console.log(chalk.gray(`  连接数: ${status.activeConnections}`));
       console.log(chalk.gray(`  开机自启: ${isBootRegistered() ? chalk.green('已注册') : '未注册'}`));
+      console.log(chalk.blue(`\n控制台: ${adminUrl}`));
+      console.log(chalk.dim(`  配置: ${DEFAULT_CONFIG_FILE}`));
+      console.log(chalk.dim(`  日志: ${LOG_FILE}`));
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();
@@ -562,11 +577,11 @@ program
     }
   });
 
-// ====== stop 命令 ======
+// ====== close 命令 ======
 
 program
-  .command('stop')
-  .description('停止服务器并取消开机自启动')
+  .command('close')
+  .description('关闭服务器并取消开机自启动')
   .action(async () => {
     const pidInfo = readPidFile();
     if (!pidInfo) {
@@ -577,7 +592,7 @@ program
     try {
       await httpPost(pidInfo.host, pidInfo.controlPort, '/_chuantou/stop', pidInfo.tls);
       removePidFile();
-      console.log(chalk.green('服务器已停止'));
+      console.log(chalk.green('服务器已关闭'));
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();

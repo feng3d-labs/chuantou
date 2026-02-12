@@ -63,7 +63,7 @@ ${chalk.bold('用法：')} npx @feng3d/cts <${chalk.bold('命令')}> [选项]
 
 ${chalk.bold('命令：')}
   ${chalk.cyan('start')}      启动客户端（后台守护进程）
-  ${chalk.cyan('stop')}       停止客户端
+  ${chalk.cyan('close')}      关闭客户端
   ${chalk.cyan('restart')}    重启客户端
   ${chalk.cyan('status')}     查看运行状态
   ${chalk.cyan('proxies')}    管理代理映射
@@ -341,11 +341,10 @@ const startCmd = program.command('start')
     }
   });
 
-// ==================== stop 命令 ====================
+// ==================== close 命令 ====================
 
-const stopCmd = program.command('stop')
-  .alias('tz')
-  .description('停止客户端')
+const closeCmd = program.command('close')
+  .description('关闭客户端')
   .action(async () => {
     const info = readPidFile();
     if (!info) {
@@ -356,7 +355,7 @@ const stopCmd = program.command('stop')
     try {
       process.kill(info.pid, 'SIGTERM');
     } catch (err: any) {
-      console.log(chalk.yellow(`停止失败: ${err.message}`));
+      console.log(chalk.yellow(`关闭失败: ${err.message}`));
       return;
     }
 
@@ -369,7 +368,7 @@ const stopCmd = program.command('stop')
       // ignore
     }
 
-    console.log(chalk.green('客户端已停止'));
+    console.log(chalk.green('客户端已关闭'));
   });
 
 // ==================== restart 命令 ====================
@@ -412,7 +411,6 @@ const restartCmd = program.command('restart')
 // ==================== status 命令 ====================
 
 const statusCmd = program.command('status')
-  .alias('zt')
   .description('查看运行状态')
   .action(async () => {
     const info = readPidFile();
