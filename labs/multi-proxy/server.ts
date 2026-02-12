@@ -3,9 +3,8 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { createSocket as createUdpSocket } from 'dgram'
 import { createHash } from 'crypto'
 
-// ====== WebSocket 帧处理（纯 Node.js 实现） ======
+// ====== WebSocket 帧处理 ======
 
-/** 解析 WebSocket 帧，返回 opcode 和 payload */
 function parseWebSocketFrame(buffer: Buffer): { opcode: number; payload: Buffer } | null {
   if (buffer.length < 2) return null
 
@@ -39,7 +38,6 @@ function parseWebSocketFrame(buffer: Buffer): { opcode: number; payload: Buffer 
   return { opcode, payload: buffer.subarray(offset, offset + payloadLength) }
 }
 
-/** 构造 WebSocket 文本帧（服务端发送，不需要 mask） */
 function buildWebSocketFrame(data: string): Buffer {
   const payload = Buffer.from(data, 'utf8')
   const len = payload.length
@@ -47,7 +45,7 @@ function buildWebSocketFrame(data: string): Buffer {
   let header: Buffer
   if (len < 126) {
     header = Buffer.alloc(2)
-    header[0] = 0x81 // FIN + text opcode
+    header[0] = 0x81
     header[1] = len
   } else if (len < 65536) {
     header = Buffer.alloc(4)
@@ -74,38 +72,30 @@ function isHttpData(data: Buffer): boolean {
   return HTTP_METHODS.some(m => head.startsWith(m))
 }
 
-// ====== 服务器 ======
+// ====== 多协议 Echo 服务端 ======
 
-export interface MultiProtocolServer {
+export interface EchoServer {
   port: number
   close(): Promise<void>
 }
 
-export function startServer(port: number): Promise<MultiProtocolServer> {
-  // HTTP 服务器（不直接监听端口）
+export function startEchoServer(port: number): Promise<EchoServer> {
   const httpServer = createHttpServer((req: IncomingMessage, res: ServerResponse) => {
     res.writeHead(200, { 'Content-Type': 'application/json' })
     res.end(JSON.stringify({
       protocol: 'http',
       method: req.method,
       url: req.url,
-      message: 'Hello from multi-protocol server',
     }))
   })
 
-  // WebSocket 升级处理
   httpServer.on('upgrade', (req: IncomingMessage, socket: Socket) => {
     const key = req.headers['sec-websocket-key']
-    if (!key) {
-      socket.destroy()
-      return
-    }
+    if (!key) { socket.destroy(); return }
 
-    // 计算 Sec-WebSocket-Accept
     const GUID = '258EAFA5-E914-47DA-95CA-5AB5DC76CB65'
     const accept = createHash('sha1').update(key + GUID).digest('base64')
 
-    // 发送握手响应
     socket.write(
       'HTTP/1.1 101 Switching Protocols\r\n' +
       'Upgrade: websocket\r\n' +
@@ -114,44 +104,30 @@ export function startServer(port: number): Promise<MultiProtocolServer> {
       '\r\n'
     )
 
-    // 处理 WebSocket 帧
     socket.on('data', (data: Buffer) => {
       const frame = parseWebSocketFrame(data)
       if (!frame) return
-
-      if (frame.opcode === 0x8) {
-        // Close 帧
-        socket.end()
-        return
-      }
-
+      if (frame.opcode === 0x8) { socket.end(); return }
       if (frame.opcode === 0x1) {
-        // Text 帧 - echo 回去
         const msg = frame.payload.toString('utf8')
-        const response = JSON.stringify({
+        socket.write(buildWebSocketFrame(JSON.stringify({
           protocol: 'websocket',
           echo: msg,
-          message: 'Hello from multi-protocol server (WebSocket)',
-        })
-        socket.write(buildWebSocketFrame(response))
+        })))
       }
     })
 
     socket.on('error', () => {})
   })
 
-  // 原始 TCP echo 处理
   function handleRawTcp(socket: Socket, initialData: Buffer) {
     socket.write(`[TCP ECHO] ${initialData.toString()}`)
-
     socket.on('data', (data: Buffer) => {
       socket.write(`[TCP ECHO] ${data.toString()}`)
     })
-
     socket.on('error', () => {})
   }
 
-  // TCP 服务器（协议检测路由）
   const tcpServer = createTcpServer({ pauseOnConnect: true }, (socket: Socket) => {
     socket.once('readable', () => {
       const chunk = socket.read() as Buffer | null
@@ -175,27 +151,23 @@ export function startServer(port: number): Promise<MultiProtocolServer> {
     }
   }
 
-  // UDP 服务器
   const udpSocket = createUdpSocket('udp4')
 
   udpSocket.on('message', (msg: Buffer, rinfo) => {
     const response = JSON.stringify({
       protocol: 'udp',
       echo: msg.toString(),
-      message: 'Hello from multi-protocol server (UDP)',
     })
     udpSocket.send(response, rinfo.port, rinfo.address)
   })
 
   return new Promise((resolve, reject) => {
     tcpServer.listen(port, () => {
-      // 支持 port 0：TCP 绑定后获取实际端口，UDP 绑到同一端口
       const actualPort = (tcpServer.address() as { port: number }).port
-      console.log(`[Server] TCP (HTTP + WebSocket + raw TCP) listening on port ${actualPort}`)
+      console.log(`[EchoServer] TCP (HTTP/WS/TCP) on port ${actualPort}`)
 
       udpSocket.bind(actualPort, () => {
-        console.log(`[Server] UDP listening on port ${actualPort}`)
-
+        console.log(`[EchoServer] UDP on port ${actualPort}`)
         resolve({
           port: actualPort,
           close() {
