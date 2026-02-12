@@ -16,7 +16,7 @@ import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get as httpGet } from 'http';
-import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared';
 import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
 /** 客户端实例数据目录 */
@@ -43,18 +43,6 @@ interface ProxyEntry {
   localPort: number;
   /** 本地主机（可选） */
   localHost?: string;
-}
-
-/**
- * 客户端配置接口
- */
-interface ClientConfig {
-  /** 服务器地址 */
-  server: string;
-  /** 认证令牌 */
-  token?: string;
-  /** 代理配置列表 */
-  proxies?: ProxyEntry[];
 }
 
 /**
@@ -191,8 +179,8 @@ serveCmd.action(async (options) => {
     process.exit(1);
   }
 
-  if (!config?.server) {
-    console.log(chalk.red('配置文件缺少 server 字段'));
+  if (!config?.serverUrl) {
+    console.log(chalk.red('配置文件缺少 serverUrl 字段'));
     process.exit(1);
   }
 
@@ -279,20 +267,27 @@ startCmd.action(async (options) => {
         config = null;
       }
 
-      // 配置文件不存在且无命令行参数时才报错
+      // 配置文件不存在且无命令行参数时，使用默认配置并提示
       if (!config || !config.server) {
-        console.log(chalk.red('错误: 配置文件不存在或缺少 server 字段'));
-        console.log(chalk.yellow('提示:'));
-        console.log(chalk.yellow('  1. 首次使用请运行: feng3d-ctc start --config <配置文件路径>'));
-        console.log(chalk.yellow('  2. 或在管理页面 http://127.0.0.1:9001 中配置'));
-        process.exit(1);
+        // 使用默认配置
+        config = {
+          serverUrl: 'ws://localhost:9000',
+          token: '',
+          reconnectInterval: 30000,
+          maxReconnectAttempts: 10,
+          proxies: [],
+        };
+
+        // 提示用户可通过管理页面配置
+        console.log(chalk.yellow('提示: 未找到配置文件，使用默认配置'));
+        console.log(chalk.yellow('  如需自定义配置，请访问: http://127.0.0.1:9001'));
       }
     }
   }
 
   // 3. 构建启动参数
-  const server = config?.server || 'ws://localhost:9000';
-  const serverUrl = config?.server || server;
+  const server = config?.serverUrlUrl || 'ws://localhost:9000';
+  const serverUrl = config?.serverUrlUrl || server;
 
   // 4. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
@@ -321,6 +316,13 @@ startCmd.action(async (options) => {
 
   child.unref();
   closeSync(logFd);
+
+  // 输出管理页面地址和当前配置信息
+  console.log(chalk.green('客户端已在后台启动'));
+  console.log(chalk.gray(`  PID: ${child.pid}`));
+  console.log(chalk.gray(`  服务器: ${serverUrl}`));
+  console.log(chalk.gray(`  管理页面: http://127.0.0.1:9001/`));
+  console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
   // 8. 监控守护进程，异常退出时自动重启
   let restartCount = 0;
@@ -554,8 +556,11 @@ program
         } else {
           // 创建新配置文件
           writeConfig({
-            server: 'ws://localhost:9000',
-            proxies: [{ remotePort, localPort, localHost }],
+            serverUrl: 'ws://localhost:9000',
+            token: '',
+            reconnectInterval: 30000,
+            maxReconnectAttempts: 10,
+            proxies: [],
           });
         }
       } else {
