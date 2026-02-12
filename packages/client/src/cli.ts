@@ -321,15 +321,11 @@ startCmd.action(async (options) => {
   const scriptPath = fileURLToPath(import.meta.url);
   const nodePath = process.execPath;
 
-  // 6. 构建 _serve 参数（使用默认配置文件）
+  // 6. 构建 _serve 参数（优先使用 --config 指向配置文件）
   const serveArgs: string[] = [];
-  if (useCustomConfig) {
-    serveArgs.push('--config', configPath);
-  } else {
-    serveArgs.push('--server', serverUrl);
-    if (token) serveArgs.push('--token', token);
-    if (proxies) serveArgs.push('--proxies', proxies);
-  }
+  // 始终使用 --config 参数，这样 boot.json 中保存的是配置文件路径而非展开的参数
+  const bootConfigPath = useCustomConfig ? configPath : DEFAULT_CONFIG_FILE;
+  serveArgs.push('--config', bootConfigPath);
 
   // 7. 打开日志文件
   const logFd = openSync(LOG_FILE, 'a');
