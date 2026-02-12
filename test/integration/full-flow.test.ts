@@ -82,6 +82,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
               id: msg.id,
               payload: {
                 success,
+                clientId: success ? uuidv4() : undefined,
                 error: success ? undefined : 'Invalid token'
               }
             }));
@@ -186,6 +187,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
       const parsed = await waitForMessage(clientWs);
       expect(parsed.type).toBe('auth_resp');
       expect(parsed.payload.success).toBe(true);
+      expect(parsed.payload.clientId).toBeDefined();
 
       clientWs.close();
     });
@@ -213,42 +215,6 @@ describe('全流程集成测试 - WebSocket通信', () => {
   });
 
   describe('消息类型兼容性', () => {
-    it('应该兼容 tcp_data 和 tcp_data_resp 两种格式', async () => {
-      const clientWs = new WebSocket(`ws://localhost:${PORTS.controlServer}`);
-
-      await waitForEvent(clientWs, 'open');
-
-      // 测试 tcp_data 格式（简化格式，直接有 connectionId 和 data）
-      const tcpDataMsg1 = {
-        type: 'tcp_data',
-        id: uuidv4(),
-        payload: {
-          connectionId: uuidv4(),
-          data: Buffer.from('data1').toString('base64')
-        }
-      };
-
-      clientWs.send(JSON.stringify(tcpDataMsg1));
-      const resp1 = await waitForMessage(clientWs);
-      expect(resp1.type).toBe('tcp_data_resp');
-
-      // 测试 tcp_data_resp 格式
-      const tcpDataMsg2 = {
-        type: 'tcp_data_resp',
-        id: uuidv4(),
-        payload: {
-          connectionId: uuidv4(),
-          data: Buffer.from('data2').toString('base64')
-        }
-      };
-
-      clientWs.send(JSON.stringify(tcpDataMsg2));
-      const resp2 = await waitForMessage(clientWs);
-      expect(resp2.type).toBe('tcp_data_resp_resp');
-
-      clientWs.close();
-    }, 15000);
-
     it('应该正确处理新连接通知', async () => {
       const clientWs = new WebSocket(`ws://localhost:${PORTS.controlServer}`);
 
@@ -261,7 +227,8 @@ describe('全流程集成测试 - WebSocket通信', () => {
         payload: {
           connectionId,
           protocol: 'tcp',
-          remoteAddress: '192.168.1.100:54321'
+          remotePort: 8080,
+          remoteAddress: '192.168.1.100'
         }
       };
 
@@ -270,6 +237,32 @@ describe('全流程集成测试 - WebSocket通信', () => {
       // 等待服务端自动响应（确认收到）
       const resp = await waitForMessage(clientWs);
       expect(resp.type).toBe('new_connection_resp');
+
+      clientWs.close();
+    });
+
+    it('应该正确处理 UDP 新连接通知', async () => {
+      const clientWs = new WebSocket(`ws://localhost:${PORTS.controlServer}`);
+
+      await waitForEvent(clientWs, 'open');
+
+      const connectionId = uuidv4();
+      const newConnMsg = {
+        type: 'new_connection',
+        id: uuidv4(),
+        payload: {
+          connectionId,
+          protocol: 'udp',
+          remotePort: 5353,
+          remoteAddress: '10.0.0.1'
+        }
+      };
+
+      clientWs.send(JSON.stringify(newConnMsg));
+
+      const resp = await waitForMessage(clientWs);
+      expect(resp.type).toBe('new_connection_resp');
+      expect(resp.payload.protocol).toBe('udp');
 
       clientWs.close();
     });
@@ -333,7 +326,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
   });
 
   describe('端口注册流程', () => {
-    it('应该能够注册 HTTP 代理端口', async () => {
+    it('应该能够注册代理端口', async () => {
       const clientWs = new WebSocket(`ws://localhost:${PORTS.controlServer}`);
 
       await waitForEvent(clientWs, 'open');
@@ -357,7 +350,6 @@ describe('全流程集成测试 - WebSocket通信', () => {
         payload: {
           remotePort: 2222,
           localPort: 80,
-          protocol: 'http'
         }
       };
 
@@ -536,7 +528,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
       const binaryData = Buffer.from([0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD]);
       const base64Encoded = binaryData.toString('base64');
 
-      const tcpDataMsg = {
+      const testMsg = {
         type: 'binary_data_test',
         id: uuidv4(),
         payload: {
@@ -545,7 +537,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
         }
       };
 
-      clientWs.send(JSON.stringify(tcpDataMsg));
+      clientWs.send(JSON.stringify(testMsg));
 
       // 等待服务端回显
       const parsed = await waitForMessage(clientWs);
@@ -570,7 +562,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
       const largeData = Buffer.alloc(10 * 1024, 'x');
       const base64LargeData = largeData.toString('base64');
 
-      const tcpDataMsg = {
+      const testMsg = {
         type: 'large_data_test',
         id: uuidv4(),
         payload: {
@@ -579,7 +571,7 @@ describe('全流程集成测试 - WebSocket通信', () => {
         }
       };
 
-      clientWs.send(JSON.stringify(tcpDataMsg));
+      clientWs.send(JSON.stringify(testMsg));
 
       // 等待服务端回显
       const parsed = await waitForMessage(clientWs);

@@ -1,6 +1,6 @@
 ---
 name: chuantou
-description: Internal network tunneling system like ngrok or frp for exposing local services to the internet. Supports NAT traversal and port forwarding.
+description: Internal network tunneling system like ngrok or frp for exposing local services to the internet. Supports HTTP/WebSocket/TCP/UDP protocol forwarding with three-channel architecture.
 ---
 
 # Chuantou / 穿透
@@ -21,14 +21,18 @@ npx @feng3d/ctc -s ws://server:9000 -t "my-token" -p "8080:3000:localhost"
 
 ## 系统架构
 
-系统由服务端 (server) 和客户端 (client) 组成：
+系统由服务端 (server) 和客户端 (client) 组成，采用三通道架构：
 
-- **服务端**: 监听控制端口，接受客户端连接，分配公网端口
-- **客户端**: 连接服务端，建立隧道，转发本地服务流量
+- **WebSocket 控制通道** — JSON 消息（认证/注册/心跳/连接通知）
+- **TCP 数据通道** — 二进制帧（HTTP/WebSocket/TCP 数据高效转发）
+- **UDP 数据通道** — UDP 数据帧（保留 UDP 语义的数据转发）
 
-通信流程：客户端 → WebSocket → 服务端 → 目标服务
+三个通道复用同一个控制端口。每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 四种协议，自动识别协议类型。
 
-每个代理端口同时支持 HTTP 和 WebSocket 协议。
+通信流程：
+```
+外部请求 → [代理端口(TCP+UDP)] → 服务端 → (数据通道) → 客户端 → [本地服务]
+```
 
 ## 命令
 
@@ -66,7 +70,7 @@ npx @feng3d/ctc [选项]
 
 **推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
 
-每个代理端口同时支持 HTTP 和 WebSocket 协议。
+每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 协议。
 
 ## TLS 支持
 
@@ -118,9 +122,9 @@ npx @feng3d/ctc \
 
 | 远程端口 | 本地端口 | 本地地址 | 用途 |
 |---------|---------|---------|------|
-| 8080 | 3000 | localhost | Web 服务 |
-| 8081 | 3001 | localhost | WebSocket 服务 |
-| 8082 | 8000 | localhost | API 服务 |
+| 8080 | 3000 | localhost | Web 服务（HTTP/WebSocket/TCP/UDP） |
+| 8081 | 3001 | localhost | API 服务 |
+| 8082 | 8000 | localhost | 其他服务 |
 
 ### 场景四：启用 TLS 加密
 
@@ -168,3 +172,4 @@ npx @feng3d/ctc \
 | TLS 错误 | 服务端启用 TLS 后，客户端必须使用 `wss://` 协议 |
 | 隧道断开 | 客户端会自动重连，检查网络稳定性 |
 | 无法访问本地服务 | 确认本地服务已启动，端口和地址配置正确 |
+| UDP 穿透不可用 | UDP 通道建立失败不阻断启动，检查防火墙是否放行 UDP |

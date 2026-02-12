@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "name": "@feng3d/chuantou",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "description": "穿透 - 内网穿透转发系统 | Claude Code Skills",
   "keywords": [
     "chuantou",
@@ -18,9 +18,8 @@
     "ai"
   ],
   "workspaces": [
-    "packages/shared",
-    "packages/client",
-    "packages/server"
+    "packages/*",
+    "labs/*"
   ],
   "files": [
     "SKILL.md"
@@ -30,7 +29,7 @@
     "start:server": "npm run start --workspace=packages/server",
     "start:client": "npm run start --workspace=packages/client",
     "build": "npm run build --workspaces",
-    "watch": "npm run build && npm run watch --workspaces",
+    "watch": "concurrently -n shared,client,server -c blue,green,yellow \"tsc --watch --pretty -p packages/shared\" \"tsc --watch --pretty -p packages/client\" \"tsc --watch --pretty -p packages/server\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -48,5 +47,7 @@
   "bugs": {
     "url": "https://github.com/feng3d-labs/chuantou/issues"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
 }

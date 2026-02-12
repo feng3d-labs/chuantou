@@ -225,14 +225,8 @@ export class AdminServer {
       font-size: 11px;
       font-weight: 500;
       text-transform: uppercase;
-    }
-    .proxy-protocol.http {
       background: rgba(0, 217, 255, 0.2);
       color: #00d9ff;
-    }
-    .proxy-protocol.websocket {
-      background: rgba(255, 165, 0, 0.2);
-      color: #ffa500;
     }
     .proxy-remote {
       color: #00d9ff;
@@ -263,7 +257,7 @@ export class AdminServer {
     }
     .form-row {
       display: grid;
-      grid-template-columns: repeat(4, 1fr) auto;
+      grid-template-columns: repeat(3, 1fr) auto;
       gap: 12px;
       align-items: end;
     }
@@ -423,13 +417,6 @@ export class AdminServer {
             <input type="number" id="newRemotePort" placeholder="8080" min="1" max="65535">
           </div>
           <div class="form-group">
-            <label>协议</label>
-            <select id="newProtocol">
-              <option value="http">HTTP</option>
-              <option value="websocket">WebSocket</option>
-            </select>
-          </div>
-          <div class="form-group">
             <label>本地端口</label>
             <input type="number" id="newLocalPort" placeholder="3000" min="1" max="65535">
           </div>
@@ -516,11 +503,10 @@ export class AdminServer {
           listEl.innerHTML = '<div class="empty-state">暂无代理映射，点击上方按钮添加</div>';
         } else {
           listEl.innerHTML = data.proxies.map(p => {
-            const protocol = p.protocol === 'websocket' ? 'websocket' : 'http';
             return \`
               <div class="proxy-item">
                 <div class="proxy-info">
-                  <span class="proxy-protocol \${protocol}">\${protocol === 'websocket' ? 'WS' : 'HTTP'}</span>
+                  <span class="proxy-protocol">ALL</span>
                   <span class="proxy-remote">:\${p.remotePort}</span>
                   <span class="proxy-arrow">→</span>
                   <span class="proxy-local">\${p.localHost || 'localhost'}:\${p.localPort}</span>
@@ -574,7 +560,6 @@ export class AdminServer {
 
     document.getElementById('addProxy').addEventListener('click', async () => {
       const remotePort = parseInt(document.getElementById('newRemotePort').value);
-      const protocol = document.getElementById('newProtocol').value;
       const localPort = parseInt(document.getElementById('newLocalPort').value);
       const localHost = document.getElementById('newLocalHost').value || 'localhost';
 
@@ -587,7 +572,7 @@ export class AdminServer {
         const res = await fetch('/_ctc/proxies', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ remotePort, protocol, localPort, localHost })
+          body: JSON.stringify({ remotePort, localPort, localHost })
         });
 
         if (res.ok) {

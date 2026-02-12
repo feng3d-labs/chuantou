@@ -6,7 +6,9 @@
 
 ## 特性
 
-- WebSocket 控制通道
+- 三通道架构：WebSocket 控制通道 + TCP 二进制数据通道 + UDP 数据通道
+- **每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 四种协议**，自动识别协议类型
+- 控制端口复用：同一端口处理 WebSocket 控制连接、TCP 数据通道和 UDP 数据通道
 - 动态端口分配
 - 自动心跳检测
 - 多客户端支持
@@ -140,10 +142,17 @@ npx @feng3d/cts start -t "client1-token,client2-token,client3-token"
 ## 架构
 
 ```
-公网用户请求 -> 服务端监听端口 -> WebSocket 控制通道 -> 内网客户端 -> 本地服务
+控制端口（复用）:
+  ├─ WebSocket 控制通道 ── JSON 消息（认证/注册/心跳/连接通知）
+  ├─ TCP 数据通道 ─────── 二进制帧（HTTP/WS/TCP 数据转发）
+  └─ UDP 数据通道 ─────── UDP 数据帧（UDP 数据转发）
+
+代理端口（每端口同时监听 TCP + UDP）:
+  ├─ TCP 服务器 → 自动识别 HTTP/WebSocket/TCP 协议
+  └─ UDP 服务器 → 转发 UDP 数据
 ```
 
-**每个代理端口同时支持 HTTP 和 WebSocket 协议**，客户端无需指定协议类型。
+**每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 四种协议**，客户端无需指定协议类型。
 
 ## 许可证
 

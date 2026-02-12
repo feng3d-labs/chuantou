@@ -4,8 +4,9 @@
 
 ## 特性
 
-- **每个端口同时支持 HTTP 和 WebSocket 协议**，无需单独配置
-- WebSocket 控制通道
+- **每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 四种协议**，无需单独配置
+- 三通道架构：WebSocket 控制通道 + TCP 二进制数据通道 + UDP 数据通道
+- 单端口多协议透明转发，自动识别协议类型
 - 自动重连机制
 - 单实例模式：支持动态添加代理映射
 - Token 认证
@@ -75,7 +76,7 @@ npx @feng3d/ctc start \
 
 启动成功后，访问 `http://your-server.com:8080` 即可访问本地的 3000 端口服务。
 
-同一个端口支持 HTTP 和 WebSocket 连接。
+同一个端口支持 HTTP、WebSocket、TCP 和 UDP 连接。
 
 ## 管理页面
 
@@ -151,12 +152,12 @@ remotePort:localPort[:localHost]
 
 **推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
 
-每个代理端口同时支持 HTTP 和 WebSocket 协议。
+每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 协议。
 
 ## 示例
 
 ```bash
-# 单个代理（同时支持 HTTP 和 WebSocket）
+# 单个代理（同时支持 HTTP/WebSocket/TCP/UDP）
 npx @feng3d/ctc start -s ws://your-server.com:9000 -t mytoken -p "8080:3000:localhost"
 
 # 多个代理

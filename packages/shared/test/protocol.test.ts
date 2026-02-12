@@ -10,7 +10,6 @@ import {
   ProtocolError,
   HTTP_STATUS,
   DEFAULT_CONFIG,
-  ProxyProtocol,
   ConnectionProtocol,
   ProxyConfig,
   ServerConfig,
@@ -134,18 +133,6 @@ describe('protocol - ProtocolError', () => {
 });
 
 describe('protocol - Type Definitions', () => {
-  describe('ProxyProtocol', () => {
-    it('should accept http as valid protocol', () => {
-      const protocol: ProxyProtocol = 'http';
-      expect(protocol).toBe('http');
-    });
-
-    it('should accept tcp as valid protocol', () => {
-      const protocol: ProxyProtocol = 'tcp';
-      expect(protocol).toBe('tcp');
-    });
-  });
-
   describe('ConnectionProtocol', () => {
     it('should accept http as valid connection protocol', () => {
       const protocol: ConnectionProtocol = 'http';
@@ -178,10 +165,8 @@ describe('protocol - Type Definitions', () => {
         remotePort: 8080,
         localPort: 3000,
         localHost: '192.168.1.100',
-        protocol: 'tcp',
       };
       expect(config.localHost).toBe('192.168.1.100');
-      expect(config.protocol).toBe('tcp');
     });
   });
 
@@ -225,7 +210,7 @@ describe('protocol - Type Definitions', () => {
         maxReconnectAttempts: 10,
         proxies: [
           { remotePort: 8080, localPort: 3000 },
-          { remotePort: 2222, localPort: 22, protocol: 'tcp' },
+          { remotePort: 2222, localPort: 22 },
         ],
       };
       expect(config.serverUrl).toBe('ws://localhost:9000/control');

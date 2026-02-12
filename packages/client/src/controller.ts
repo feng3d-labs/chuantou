@@ -3,93 +3,82 @@
  *
  * 客户端控制器模块。
  *
- * 管理客户端与穿透服务器之间的 WebSocket 控制连接，
- * 负责身份认证、心跳保活、消息收发、断线重连等核心通信逻辑。
+ * 管理客户端与穿透服务器之间的 WebSocket 控制连接和二进制数据通道，
+ * 负责身份认证、心跳保活、数据通道建立、消息收发、断线重连等核心通信逻辑。
  */
 
 import { WebSocket } from 'ws';
 import { EventEmitter } from 'events';
 import {
   MessageType,
-  isMessageType,
   createMessage,
   AuthMessage,
   AuthRespMessage,
   HeartbeatMessage,
-  HeartbeatRespMessage,
   NewConnectionMessage,
   ConnectionCloseMessage,
   ConnectionErrorMessage,
   logger,
 } from '@feng3d/chuantou-shared';
 import { Config } from './config.js';
+import { DataChannel } from './data-channel.js';
 
 /**
- * 客户端控制器类，管理与穿透服务器的 WebSocket 控制连接。
+ * 客户端控制器类。
  *
- * 继承自 {@link EventEmitter}，提供以下事件：
- * - `connected` - 成功连接到服务器时触发
- * - `disconnected` - 与服务器断开连接时触发
- * - `authenticated` - 身份认证成功时触发
- * - `maxReconnectAttemptsReached` - 达到最大重连次数时触发
- * - `newConnection` - 收到新的代理连接请求时触发
- * - `connectionClose` - 收到连接关闭通知时触发
- * - `connectionError` - 收到连接错误通知时触发
- *
- * @example
- * ```typescript
- * const controller = new Controller(config);
- * controller.on('authenticated', () => logger.log('已认证'));
- * await controller.connect();
- * ```
+ * 事件：
+ * - `connected` — 成功连接到服务器
+ * - `disconnected` — 与服务器断开连接
+ * - `authenticated` — 身份认证成功
+ * - `maxReconnectAttemptsReached` — 达到最大重连次数
+ * - `newConnection` — 收到新的代理连接请求
+ * - `connectionClose` — 收到连接关闭通知
+ * - `connectionError` — 收到连接错误通知
  */
 export class Controller extends EventEmitter {
-  /** 客户端配置实例 */
   private config: Config;
-
-  /** 与服务器的 WebSocket 连接实例 */
   private ws: WebSocket | null = null;
-
-  /** 是否已连接到服务器 */
   private connected: boolean = false;
-
-  /** 是否已通过身份认证 */
   private authenticated: boolean = false;
-
-  /** 重连定时器 */
   private reconnectTimer: NodeJS.Timeout | null = null;
-
-  /** 心跳定时器 */
   private heartbeatTimer: NodeJS.Timeout | null = null;
-
-  /** 当前重连尝试次数 */
   private reconnectAttempts: number = 0;
-
-  /** 待响应的请求映射表，键为消息 ID */
   private pendingRequests: Map<string, {
     resolve: (value: any) => void;
     reject: (error: Error) => void;
     timeout: NodeJS.Timeout;
   }> = new Map();
 
-  /**
-   * 创建控制器实例。
-   *
-   * @param config - 客户端配置对象
-   */
+  /** 服务端分配的客户端 ID（认证成功后获得） */
+  private clientId: string = '';
+
+  /** 二进制数据通道 */
+  private dataChannel: DataChannel;
+
   constructor(config: Config) {
     super();
     this.config = config;
+    this.dataChannel = new DataChannel();
+  }
+
+  /**
+   * 获取数据通道实例
+   */
+  getDataChannel(): DataChannel {
+    return this.dataChannel;
+  }
+
+  /**
+   * 获取客户端 ID
+   */
+  getClientId(): string {
+    return this.clientId;
   }
 
   /**
    * 连接到穿透服务器。
    *
-   * 建立 WebSocket 连接后会自动进行身份认证和启动心跳。
-   * 连接断开时会自动安排重连。
-   *
-   * @returns 连接并认证成功后解析的 Promise
-   * @throws {Error} 连接失败或认证失败时抛出错误
+   * 建立 WebSocket 连接 → 认证 → 建立数据通道 → 启动心跳。
    */
   async connect(): Promise<void> {
     return new Promise<void>((resolve, reject) => {
@@ -103,9 +92,9 @@ export class Controller extends EventEmitter {
         this.reconnectAttempts = 0;
         this.emit('connected');
 
-        // 认证
         try {
           await this.authenticate();
+          await this.establishDataChannels();
           this.startHeartbeat();
           resolve();
         } catch (error) {
@@ -122,6 +111,8 @@ export class Controller extends EventEmitter {
         this.connected = false;
         this.authenticated = false;
         this.stopHeartbeat();
+        this.dataChannel.destroy();
+        this.dataChannel = new DataChannel();
         this.emit('disconnected');
         this.scheduleReconnect();
       });
@@ -136,11 +127,7 @@ export class Controller extends EventEmitter {
   }
 
   /**
-   * 向服务器发送身份认证请求。
-   *
-   * 使用配置中的 token 进行认证，认证成功后触发 `authenticated` 事件。
-   *
-   * @throws {Error} 认证失败时抛出错误，包含服务器返回的错误信息
+   * 认证并获取 clientId
    */
   private async authenticate(): Promise<void> {
     logger.log('正在认证...');
@@ -154,16 +141,38 @@ export class Controller extends EventEmitter {
       throw new Error(`认证失败: ${response.payload.error}`);
     }
 
+    this.clientId = response.payload.clientId || '';
     this.authenticated = true;
-    logger.log('认证成功');
+    logger.log(`认证成功 (clientId: ${this.clientId})`);
     this.emit('authenticated');
   }
 
   /**
-   * 启动心跳定时器。
-   *
-   * 每 30 秒向服务器发送一次心跳消息，仅在已连接且已认证状态下发送。
+   * 建立数据通道（TCP + UDP）
    */
+  private async establishDataChannels(): Promise<void> {
+    if (!this.clientId) {
+      throw new Error('无法建立数据通道: clientId 未分配');
+    }
+
+    // 从 WebSocket URL 解析服务端地址和端口
+    const url = new URL(this.config.serverUrl);
+    const host = url.hostname;
+    const port = parseInt(url.port) || (url.protocol === 'wss:' ? 443 : 80);
+
+    // 并行建立 TCP 和 UDP 数据通道
+    await Promise.all([
+      this.dataChannel.connectTcp(host, port, this.clientId).catch((error) => {
+        logger.error('TCP 数据通道建立失败:', error.message);
+        throw error;
+      }),
+      this.dataChannel.connectUdp(host, port, this.clientId).catch((error) => {
+        logger.warn('UDP 数据通道建立失败（UDP 穿透将不可用）:', error.message);
+        // UDP 通道失败不阻断启动
+      }),
+    ]);
+  }
+
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
       if (this.connected && this.authenticated) {
@@ -172,14 +181,9 @@ export class Controller extends EventEmitter {
         });
         this.sendMessage(heartbeatMsg);
       }
-    }, 30000); // 30秒
+    }, 30000);
   }
 
-  /**
-   * 停止心跳定时器。
-   *
-   * 清除心跳定时器并将其设置为 null。
-   */
   private stopHeartbeat(): void {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
@@ -187,15 +191,9 @@ export class Controller extends EventEmitter {
     }
   }
 
-  /**
-   * 安排断线重连。
-   *
-   * 使用指数退避策略计算重连延迟时间。如果已达到最大重连次数，
-   * 则触发 `maxReconnectAttemptsReached` 事件并停止重连。
-   */
   private scheduleReconnect(): void {
     if (this.reconnectTimer) {
-      return; // 已经安排了重连
+      return;
     }
 
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
@@ -218,30 +216,15 @@ export class Controller extends EventEmitter {
     }, delay);
   }
 
-  /**
-   * 计算重连延迟时间（指数退避算法）。
-   *
-   * 基于重连间隔和当前重连次数计算延迟，最大不超过 60 秒，
-   * 并添加 0~1 秒的随机抖动以避免多客户端同时重连造成服务器压力。
-   *
-   * @returns 重连延迟时间（毫秒）
-   */
   private calculateReconnectDelay(): number {
     const baseDelay = this.config.reconnectInterval;
-    const maxDelay = 60000; // 最大60秒
+    const maxDelay = 60000;
     const delay = Math.min(baseDelay * Math.pow(2, this.reconnectAttempts), maxDelay);
-    // 添加随机抖动
     return delay + Math.random() * 1000;
   }
 
   /**
-   * 处理从服务器接收到的消息。
-   *
-   * 根据消息类型进行分发：
-   * - 响应类消息（AUTH_RESP、REGISTER_RESP、HEARTBEAT_RESP）交由 {@link handleResponse} 处理
-   * - 新连接、连接关闭、连接错误等消息通过事件触发通知上层
-   *
-   * @param data - 接收到的原始消息数据
+   * 处理控制消息（仅控制消息，数据通过 DataChannel 传输）
    */
   private handleMessage(data: Buffer): void {
     try {
@@ -252,7 +235,6 @@ export class Controller extends EventEmitter {
         case MessageType.AUTH_RESP:
         case MessageType.REGISTER_RESP:
         case MessageType.HEARTBEAT_RESP:
-          // 响应消息，由pendingRequests处理
           this.handleResponse(message);
           break;
 
@@ -268,11 +250,6 @@ export class Controller extends EventEmitter {
           this.emit('connectionError', message as ConnectionErrorMessage);
           break;
 
-        case MessageType.TCP_DATA:
-        case MessageType.TCP_DATA_RESP:
-          this.emit('tcpData', message);
-          break;
-
         default:
           logger.warn(`未知消息类型: ${msgType}`);
       }
@@ -282,13 +259,6 @@ export class Controller extends EventEmitter {
     }
   }
 
-  /**
-   * 处理响应类消息。
-   *
-   * 根据消息 ID 查找对应的待处理请求，清除超时定时器并解析 Promise。
-   *
-   * @param message - 服务器返回的响应消息对象
-   */
   private handleResponse(message: any): void {
     const pending = this.pendingRequests.get(message.id);
     if (pending) {
@@ -298,18 +268,6 @@ export class Controller extends EventEmitter {
     }
   }
 
-  /**
-   * 发送请求消息并等待服务器响应。
-   *
-   * 将消息发送到服务器，并在指定超时时间内等待对应的响应消息。
-   * 如果超时未收到响应，Promise 将被拒绝。
-   *
-   * @typeParam T - 期望的响应消息类型
-   * @param message - 要发送的请求消息对象，必须包含 `id` 字段
-   * @param timeout - 请求超时时间（毫秒），默认为 30000
-   * @returns 服务器响应消息的 Promise
-   * @throws {Error} 请求超时时抛出 "Request timeout" 错误
-   */
   sendRequest<T>(message: any, timeout: number = 30000): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -322,15 +280,6 @@ export class Controller extends EventEmitter {
     });
   }
 
-  /**
-   * 向服务器发送消息。
-   *
-   * 将消息对象序列化为 JSON 并通过 WebSocket 发送。
-   * 仅在 WebSocket 连接处于 OPEN 状态时才能发送。
-   *
-   * @param message - 要发送的消息对象
-   * @returns 发送成功返回 `true`，未连接时返回 `false`
-   */
   sendMessage(message: any): boolean {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) {
       this.ws.send(JSON.stringify(message));
@@ -340,45 +289,25 @@ export class Controller extends EventEmitter {
     return false;
   }
 
-  /**
-   * 检查是否已连接到服务器。
-   *
-   * @returns 已连接返回 `true`，否则返回 `false`
-   */
   isConnected(): boolean {
     return this.connected;
   }
 
-  /**
-   * 检查是否已通过身份认证。
-   *
-   * @returns 已认证返回 `true`，否则返回 `false`
-   */
   isAuthenticated(): boolean {
     return this.authenticated;
   }
 
-  /**
-   * 获取当前重连尝试次数。
-   *
-   * @returns 当前重连次数
-   */
   getReconnectAttempts(): number {
     return this.reconnectAttempts;
   }
 
-  /**
-   * 断开与服务器的连接。
-   *
-   * 清除重连定时器、停止心跳、关闭 WebSocket 连接，
-   * 并重置连接和认证状态。
-   */
   disconnect(): void {
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
     this.stopHeartbeat();
+    this.dataChannel.destroy();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
@@ -387,12 +316,6 @@ export class Controller extends EventEmitter {
     this.authenticated = false;
   }
 
-  /**
-   * 销毁控制器实例，释放所有资源。
-   *
-   * 断开连接、清除所有待处理请求的超时定时器、
-   * 清空待处理请求映射表并移除所有事件监听器。
-   */
   destroy(): void {
     this.disconnect();
     for (const { timeout } of this.pendingRequests.values()) {

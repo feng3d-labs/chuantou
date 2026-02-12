@@ -6,13 +6,15 @@
  * 本模块定义了穿透代理系统中客户端与服务端之间通过 WebSocket 控制通道传输的所有消息类型，
  * 包括认证消息、控制消息（注册/注销/心跳）、连接通知消息等，
  * 以及消息的创建、序列化、反序列化和类型守卫等工具函数。
+ *
+ * 注意：实际数据传输已移至独立的二进制 TCP 数据通道和 UDP 数据通道，
+ * WebSocket 控制通道仅用于控制消息。
  */
 
 /**
  * 消息类型枚举
  *
- * 定义穿透代理协议中所有消息的类型标识，
- * 涵盖认证、控制和连接通知三大类消息。
+ * 定义穿透代理协议中所有控制消息的类型标识。
  */
 export enum MessageType {
   /** 客户端发送的认证请求消息 */
@@ -37,19 +39,14 @@ export enum MessageType {
   CONNECTION_CLOSE = 'connection_close',
   /** 连接错误通知消息 */
   CONNECTION_ERROR = 'connection_error',
-
-  /** TCP 数据消息（客户端发送，用于转发 TCP 数据） */
-  TCP_DATA = 'tcp_data',
-  /** TCP 数据响应消息（服务端发送，用于转发 TCP 数据） */
-  TCP_DATA_RESP = 'tcp_data_resp',
 }
 
 /**
  * 协议类型
  *
- * 穿透代理支持的传输协议类型，可选 HTTP、WebSocket 或 TCP。
+ * 穿透代理支持的传输协议类型。
  */
-export type Protocol = 'http' | 'websocket' | 'tcp';
+export type Protocol = 'http' | 'websocket' | 'tcp' | 'udp';
 
 /**
  * 基础消息接口
@@ -84,6 +81,7 @@ export interface AuthMessage extends Message {
  * 认证响应消息
  *
  * 服务端对客户端认证请求的响应，表明认证是否成功。
+ * 认证成功后会包含服务端分配的 clientId，客户端需要用此 ID 建立数据通道。
  */
 export interface AuthRespMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.AUTH_RESP} */
@@ -92,6 +90,8 @@ export interface AuthRespMessage extends Message {
   payload: {
     /** 认证是否成功 */
     success: boolean;
+    /** 服务端分配的客户端 ID（认证成功时返回，用于建立数据通道） */
+    clientId?: string;
     /** 认证失败时的错误描述信息 */
     error?: string;
   };
@@ -101,7 +101,7 @@ export interface AuthRespMessage extends Message {
  * 注册代理服务消息
  *
  * 客户端向服务端请求注册一条代理隧道，指定远程端口到本地服务的映射。
- * 支持 HTTP（含 WebSocket）和 TCP 协议。
+ * 每个端口同时支持 HTTP、WebSocket、TCP 和 UDP 所有协议。
  */
 export interface RegisterMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.REGISTER} */
@@ -114,8 +114,6 @@ export interface RegisterMessage extends Message {
     localPort: number;
     /** 本地服务的主机地址，默认为 localhost */
     localHost?: string;
-    /** 代理协议类型 */
-    protocol?: 'http' | 'tcp';
   };
 }
 
@@ -186,20 +184,10 @@ export interface HeartbeatRespMessage extends Message {
 }
 
 /**
- * HTTP 请求头信息
- *
- * 表示 HTTP 请求或响应的头部字段映射，值可以是单个字符串、字符串数组或未定义。
- */
-export interface HttpHeaders {
-  /** HTTP 头部字段，键为头部名称，值为头部内容 */
-  [key: string]: string | string[] | undefined;
-}
-
-/**
  * 新连接通知消息
  *
- * 当外部用户连接到服务端的代理端口时，服务端向客户端发送此消息通知新连接的到来，
- * 并携带连接的详细信息（HTTP 请求数据、WebSocket 握手头或 TCP 连接信息）。
+ * 当外部用户连接到服务端的代理端口时，服务端向客户端发送此消息通知新连接的到来。
+ * 实际数据传输通过独立的二进制数据通道进行。
  */
 export interface NewConnectionMessage extends Message {
   /** 消息类型，固定为 {@link MessageType.NEW_CONNECTION} */
@@ -210,37 +198,11 @@ export interface NewConnectionMessage extends Message {
     connectionId: string;
     /** 连接使用的传输协议类型 */
     protocol: Protocol;
-    /** 服务端监听的远程端口号（客户端用于路由到正确的处理器） */
-    remotePort?: number;
-    /** TCP 连接的远程地址（仅 TCP 协议时存在） */
+    /** 服务端监听的远程端口号 */
+    remotePort: number;
+    /** 外部客户端的远程地址 */
     remoteAddress?: string;
-    /** HTTP 请求方法（仅 HTTP 协议时存在），如 GET、POST 等 */
-    method?: string;
-    /** HTTP 请求的 URL 路径（仅 HTTP 协议时存在） */
-    url?: string;
-    /** HTTP 请求头（仅 HTTP 协议时存在） */
-    headers?: HttpHeaders;
-    /** HTTP 请求体（仅 HTTP 协议时存在） */
-    body?: string | Buffer;
-    /** WebSocket 握手请求头（仅 WebSocket 协议时存在） */
-    wsHeaders?: HttpHeaders;
-    /** TCP 连接的初始数据（仅 TCP 协议时可能存在） */
-    data?: string;
   };
-}
-
-/**
- * HTTP 响应数据
- *
- * 描述一个 HTTP 响应的结构，包含状态码、响应头和可选的响应体。
- */
-export interface HttpResponseData {
-  /** HTTP 响应状态码 */
-  statusCode: number;
-  /** HTTP 响应头 */
-  headers: HttpHeaders;
-  /** HTTP 响应体 */
-  body?: string | Buffer;
 }
 
 /**
@@ -276,43 +238,7 @@ export interface ConnectionErrorMessage extends Message {
 }
 
 /**
- * TCP 数据消息
- *
- * 用于在穿透隧道中传输 TCP 连接的原始数据。
- */
-export interface TcpDataMessage extends Message {
-  /** 消息类型，固定为 {@link MessageType.TCP_DATA} */
-  type: MessageType.TCP_DATA;
-  /** TCP 数据负载 */
-  payload: {
-    /** 连接的唯一标识符 */
-    connectionId: string;
-    /** TCP 数据内容（Base64 编码） */
-    data: string;
-  };
-}
-
-/**
- * TCP 数据响应消息
- *
- * 服务端向客户端转发远程 TCP 数据时使用的消息类型。
- */
-export interface TcpDataRespMessage extends Message {
-  /** 消息类型，固定为 {@link MessageType.TCP_DATA_RESP} */
-  type: MessageType.TCP_DATA_RESP;
-  /** TCP 数据响应负载 */
-  payload: {
-    /** 连接的唯一标识符 */
-    connectionId: string;
-    /** TCP 数据内容（Base64 编码） */
-    data: string;
-  };
-}
-
-/**
  * 所有消息类型的联合类型
- *
- * 包含穿透代理协议中所有具体消息类型的联合，可用于消息处理函数的参数类型。
  */
 export type AnyMessage =
   | AuthMessage
@@ -324,9 +250,7 @@ export type AnyMessage =
   | HeartbeatRespMessage
   | NewConnectionMessage
   | ConnectionCloseMessage
-  | ConnectionErrorMessage
-  | TcpDataMessage
-  | TcpDataRespMessage;
+  | ConnectionErrorMessage;
 
 /**
  * 消息类型守卫
@@ -347,9 +271,7 @@ export function isMessage(obj: unknown): obj is Message {
 /**
  * 检查消息是否为指定类型
  *
- * 类型守卫函数，判断一条消息是否属于特定的消息类型，并在类型系统中收窄类型。
- *
- * @typeParam T - 目标消息类型，必须是 {@link AnyMessage} 的子类型
+ * @typeParam T - 目标消息类型
  * @param msg - 待检查的消息对象
  * @param type - 期望的消息类型标识
  * @returns 如果消息的 `type` 字段与期望类型匹配则返回 `true`
@@ -365,12 +287,11 @@ export function isMessageType<T extends AnyMessage>(
  * 创建消息
  *
  * 工厂函数，根据指定的消息类型和负载数据创建一条新的消息实例。
- * 若未提供消息 ID，将自动生成一个唯一 ID。
  *
- * @typeParam T - 目标消息类型（不含 `id` 字段），必须是 {@link AnyMessage} 的子类型
+ * @typeParam T - 目标消息类型
  * @param type - 消息类型标识
  * @param payload - 消息负载数据
- * @param id - 可选的消息唯一标识符，若不提供则自动生成
+ * @param id - 可选的消息唯一标识符
  * @returns 包含完整字段的消息对象
  */
 export function createMessage<T extends Omit<AnyMessage, 'id'>>(
@@ -388,8 +309,6 @@ export function createMessage<T extends Omit<AnyMessage, 'id'>>(
 /**
  * 生成消息ID
  *
- * 生成一个格式为 `msg_{timestamp}_{random}` 的唯一消息标识符。
- *
  * @returns 唯一的消息 ID 字符串
  */
 export function generateMessageId(): string {
@@ -398,8 +317,6 @@ export function generateMessageId(): string {
 
 /**
  * 序列化消息
- *
- * 将消息对象转换为 JSON 字符串，用于通过 WebSocket 发送。
  *
  * @param msg - 要序列化的消息对象
  * @returns 消息的 JSON 字符串表示
@@ -410,9 +327,6 @@ export function serializeMessage(msg: Message): string {
 
 /**
  * 反序列化消息
- *
- * 将 JSON 字符串解析为消息对象。如果字符串不是有效的 JSON 或解析后的对象不符合消息格式，
- * 将抛出错误。
  *
  * @param data - 要反序列化的 JSON 字符串
  * @returns 解析后的消息对象

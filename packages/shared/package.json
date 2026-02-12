@@ -1,6 +1,6 @@
 {
   "name": "@feng3d/chuantou-shared",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch --pretty"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

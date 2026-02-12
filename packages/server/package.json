@@ -1,6 +1,6 @@
 {
   "name": "@feng3d/cts",
-  "version": "0.0.10",
+  "version": "0.0.11",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,12 +18,12 @@
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch",
+    "watch": "tsc --watch --pretty",
     "start": "node dist/cli.js",
     "test": "vitest run"
   },
   "dependencies": {
-    "@feng3d/chuantou-shared": "^0.0.10",
+    "@feng3d/chuantou-shared": "^0.0.11",
     "chalk": "^5.6.2",
     "commander": "^14.0.3",
     "uuid": "^9.0.1",
