@@ -57,26 +57,13 @@ jobs:
           echo "version=$CURRENT_VERSION" >> $GITHUB_OUTPUT
 
   publish:
-    name: Publish packages to npm
+    name: Build, test and publish packages
     needs: check-version
     if: needs.check-version.outputs.should-publish == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
       id-token: write
-
-    strategy:
-      matrix:
-        package:
-          - name: shared
-            path: ./packages/shared
-            npm-name: "@feng3d/chuantou-shared"
-          - name: client
-            path: ./packages/client
-            npm-name: "@feng3d/ctc"
-          - name: server
-            path: ./packages/server
-            npm-name: "@feng3d/cts"
 
     steps:
       - name: Checkout code
@@ -97,10 +84,18 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Publish ${{ matrix.package.npm-name }}
-        run: |
-          cd ${{ matrix.package.path }}
-          npm publish --access public
+      - name: Publish @feng3d/chuantou-shared
+        run: cd packages/shared && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @feng3d/ctc
+        run: cd packages/client && npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Publish @feng3d/cts
+        run: cd packages/server && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 

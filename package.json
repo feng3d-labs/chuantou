@@ -28,7 +28,7 @@
     "install:all": "npm install",
     "start:server": "npm run start --workspace=packages/server",
     "start:client": "npm run start --workspace=packages/client",
-    "build": "npm run build --workspaces",
+    "build": "npm run build -w packages/shared && npm run build -w packages/client && npm run build -w packages/server",
     "watch": "concurrently -n shared,client,server -c blue,green,yellow \"tsc --watch --pretty -p packages/shared\" \"tsc --watch --pretty -p packages/client\" \"tsc --watch --pretty -p packages/server\"",
     "test": "vitest run",
     "test:watch": "vitest",
