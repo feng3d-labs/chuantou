@@ -15,7 +15,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch"
+    "watch": "tsc --watch --pretty"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

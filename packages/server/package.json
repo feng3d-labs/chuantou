@@ -18,7 +18,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch",
+    "watch": "tsc --watch --pretty",
     "start": "node dist/cli.js",
     "test": "vitest run"
   },
