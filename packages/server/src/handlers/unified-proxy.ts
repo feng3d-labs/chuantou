@@ -157,6 +157,12 @@ export class UnifiedProxyHandler {
     // 存储外部连接
     this.userSockets.set(connectionId, socket);
 
+    // 立即注册 error handler，防止未处理的 error 事件导致进程崩溃
+    socket.on('error', (error) => {
+      logger.error(`连接错误 ${connectionId}:`, error.message);
+      this.cleanupConnection(connectionId);
+    });
+
     // 恢复 socket，读取首字节检测协议
     socket.once('readable', () => {
       const data = socket.read(Math.min(socket.readableLength || 1024, 1024)) as Buffer | null;
@@ -216,11 +222,6 @@ export class UnifiedProxyHandler {
     socket.on('close', () => {
       logger.log(`连接关闭: ${connectionId}`);
       this.notifyClientClose(clientId, connectionId);
-      this.cleanupConnection(connectionId);
-    });
-
-    socket.on('error', (error) => {
-      logger.error(`连接错误 ${connectionId}:`, error.message);
       this.cleanupConnection(connectionId);
     });
   }

@@ -90,7 +90,13 @@ export class DataChannelManager extends EventEmitter {
       this.frameParsers.get(clientId)?.reset();
     }
 
-    // 建立新的数据通道
+    // 建立新的数据通道 — error handler 必须最先注册
+    socket.on('error', (error) => {
+      logger.error(`客户端 ${clientId} 数据通道错误:`, error.message);
+      this.tcpChannels.delete(clientId);
+      this.frameParsers.delete(clientId);
+    });
+
     socket.write(AUTH_RESPONSE.SUCCESS);
     this.tcpChannels.set(clientId, socket);
 
@@ -107,12 +113,6 @@ export class DataChannelManager extends EventEmitter {
 
     socket.on('close', () => {
       logger.log(`客户端 ${clientId} 数据通道已关闭`);
-      this.tcpChannels.delete(clientId);
-      this.frameParsers.delete(clientId);
-    });
-
-    socket.on('error', (error) => {
-      logger.error(`客户端 ${clientId} 数据通道错误:`, error.message);
       this.tcpChannels.delete(clientId);
       this.frameParsers.delete(clientId);
     });

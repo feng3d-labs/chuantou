@@ -236,6 +236,11 @@ export class ForwardServer {
     this.tcpServer = createTcpServer({ pauseOnConnect: true });
 
     this.tcpServer.on('connection', (socket: Socket) => {
+      socket.on('error', (error) => {
+        logger.error('控制端口连接错误:', error.message);
+        socket.destroy();
+      });
+
       socket.once('readable', () => {
         const data = socket.read(Math.min(socket.readableLength || 1024, 1024)) as Buffer | null;
 
