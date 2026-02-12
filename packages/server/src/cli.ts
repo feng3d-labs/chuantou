@@ -20,12 +20,14 @@ import { fileURLToPath } from 'url';
 import { start, stop } from './index.js';
 import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
-/** PID 文件存放目录路径 */
-const PID_DIR = join(homedir(), '.chuantou');
+/** 数据目录路径 */
+const DATA_DIR = join(homedir(), '.chuantou');
+/** 服务端数据目录路径 */
+const SERVER_DIR = join(DATA_DIR, 'server');
 /** PID 文件完整路径 */
-const PID_FILE = join(PID_DIR, 'server.pid');
+const PID_FILE = join(SERVER_DIR, 'server.pid');
 /** 日志文件路径 */
-const LOG_FILE = join(PID_DIR, 'server.log');
+const LOG_FILE = join(SERVER_DIR, 'server.log');
 
 /**
  * PID 文件信息接口
@@ -51,7 +53,7 @@ interface PidInfo {
  * @param info - 需要写入的服务器进程信息
  */
 function writePidFile(info: PidInfo): void {
-  mkdirSync(PID_DIR, { recursive: true });
+  mkdirSync(SERVER_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
 }
 
@@ -282,7 +284,7 @@ startCmd.action(async (options) => {
   }
 
   // 2. 确保数据目录存在
-  mkdirSync(PID_DIR, { recursive: true });
+  mkdirSync(SERVER_DIR, { recursive: true });
 
   // 3. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);

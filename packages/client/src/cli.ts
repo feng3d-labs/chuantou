@@ -20,12 +20,16 @@ import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou
 
 /** 客户端实例数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
+/** 客户端数据目录路径 */
+const CLIENT_DIR = join(DATA_DIR, 'client');
 /** PID 文件路径 */
-const PID_FILE = join(DATA_DIR, 'client.pid');
+const PID_FILE = join(CLIENT_DIR, 'client.pid');
+/** 日志文件路径 */
+const LOG_FILE = join(CLIENT_DIR, 'client.log');
 /** 添加代理请求目录 */
-const REQUEST_DIR = join(DATA_DIR, 'proxy-requests');
+const REQUEST_DIR = join(CLIENT_DIR, 'proxy-requests');
 /** 添加代理请求文件路径 */
-const ADD_PROXY_REQUEST_FILE = join(DATA_DIR, 'add-proxy-request.json');
+const ADD_PROXY_REQUEST_FILE = join(CLIENT_DIR, 'add-proxy-request.json');
 /** 客户端信息接口 */
 interface ClientInfo {
   /** 服务器地址 */
@@ -197,7 +201,7 @@ startCmd.action(async (options) => {
     // 后台守护进程模式
     const scriptPath = fileURLToPath(import.meta.url);
     const nodePath = process.execPath;
-    const logPath = join(DATA_DIR, 'client.log');
+    const logPath = LOG_FILE;
 
     // 打开日志文件
     const logFd = openSync(logPath, 'a');

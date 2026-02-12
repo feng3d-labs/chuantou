@@ -12,8 +12,10 @@ import { homedir, platform } from 'os';
 
 /** 数据目录路径 */
 const DATA_DIR = join(homedir(), '.chuantou');
-/** 通用启动配置文件路径（任务类型内部区分） */
-const STARTUP_FILE = join(DATA_DIR, 'boot.json');
+/** 服务端启动配置目录 */
+const SERVER_DIR = join(DATA_DIR, 'server');
+/** 客户端启动配置目录 */
+const CLIENT_DIR = join(DATA_DIR, 'client');
 
 /**
  * 启动信息接口（通用）
@@ -30,30 +32,61 @@ export interface StartupInfo {
 }
 
 /**
+ * 获取启动配置文件路径
+ */
+function getStartupFilePath(isServer: boolean): string {
+  const dir = isServer ? SERVER_DIR : CLIENT_DIR;
+  return join(dir, 'boot.json');
+}
+
+/**
  * 保存启动信息到文件
  */
 export function saveStartupInfo(info: StartupInfo): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-  writeFileSync(STARTUP_FILE, JSON.stringify(info, null, 2));
+  const dir = info.isServer ? SERVER_DIR : CLIENT_DIR;
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(getStartupFilePath(info.isServer), JSON.stringify(info, null, 2));
 }
 
 /**
  * 读取启动信息
  */
 export function loadStartupInfo(): StartupInfo | null {
+  // 尝试读取服务端配置
   try {
-    return JSON.parse(readFileSync(STARTUP_FILE, 'utf-8'));
+    return JSON.parse(readFileSync(getStartupFilePath(true), 'utf-8'));
   } catch {
-    return null;
+    // 尝试读取客户端配置
+    try {
+      return JSON.parse(readFileSync(getStartupFilePath(false), 'utf-8'));
+    } catch {
+      return null;
+    }
   }
 }
 
 /**
  * 删除启动信息文件
  */
-export function removeStartupInfo(): void {
+export function removeStartupInfo(isServer?: boolean): void {
+  // 如果指定了类型，只删除对应的文件
+  if (isServer !== undefined) {
+    try {
+      unlinkSync(getStartupFilePath(isServer));
+    } catch {
+      // ignore
+    }
+    return;
+  }
+
+  // 否则尝试删除两个文件
   try {
-    unlinkSync(STARTUP_FILE);
+    unlinkSync(getStartupFilePath(true));
+  } catch {
+    // ignore
+  }
+  try {
+    unlinkSync(getStartupFilePath(false));
   } catch {
     // ignore
   }
@@ -68,7 +101,10 @@ const WIN_REG_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run';
  * 获取 Windows 启动 VBS 脚本路径（任务名前缀区分）
  */
 function getStartupScriptPath(taskName: string): string {
-  return join(DATA_DIR, `${taskName}.vbs`);
+  // feng3d-cts -> server 目录, feng3d-ctc -> client 目录
+  const dir = taskName === 'feng3d-cts' ? SERVER_DIR : CLIENT_DIR;
+  mkdirSync(dir, { recursive: true });
+  return join(dir, `${taskName}.vbs`);
 }
 
 function registerWindows(info: StartupInfo): void {
@@ -232,7 +268,7 @@ export function unregisterBoot(info?: StartupInfo): void {
   } else if (os === 'linux') {
     unregisterLinux(startupInfo);
   }
-  removeStartupInfo();
+  removeStartupInfo(startupInfo.isServer);
 }
 
 /**
