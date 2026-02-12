@@ -2,57 +2,146 @@
 
 /**
  * @module cli
- * @description 穿透客户端命令行工具模块。
- * 提供 `feng3d-ctc` CLI 命令，支持启动、停止、查询状态、添加和移除代理映射。
- * 单实例模式：只允许一个客户端实例运行。
- * 支持从配置文件读取启动参数（开机启动时使用）
+ * @description 穿透客户端 CLI - 简洁的命令行工具
+ *
+ * 使用方法：
+ *   npx @feng3d/cts start          # 启动客户端（后台守护进程）
+ *   npx @feng3d/cts stop           # 停止客户端
+ *   npx @feng3d/cts restart        # 重启客户端
+ *   npx @feng3d/cts status         # 查看状态
+ *   npx @feng3d/cts proxies        # 管理代理映射
+ *   npx @feng3d/cts config         # 管理配置
+ *   npx @feng3d/cts boot           # 管理开机自启动
+ *   npx @feng3d/cts logs           # 查看日志
+ *   npx @feng3d/cts open           # 打开管理页面
  */
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, closeSync, appendFileSync, openSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, openSync, closeSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { get as httpGet } from 'http';
 import { ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared';
 import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
-/** 客户端实例数据目录 */
+/** 数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
-/** 客户端数据目录路径 */
+/** 客户端目录 */
 const CLIENT_DIR = join(DATA_DIR, 'client');
-/** PID 文件路径 */
+/** 配置文件 */
+const CONFIG_FILE = join(CLIENT_DIR, 'config.json');
+/** PID 文件 */
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
-/** 日志文件路径 */
+/** 日志文件 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
-/** 默认配置文件路径 */
-const DEFAULT_CONFIG_FILE = join(CLIENT_DIR, 'config.json');
-
 /** 管理服务器 URL */
 const ADMIN_URL = 'http://127.0.0.1:9001';
 
 /**
- * 客户端信息接口
+ * 帮助文本
  */
-interface ClientInfo {
-  /** 服务器地址 */
-  serverUrl: string;
-  /** 进程 ID */
-  pid: number;
-  /** 启动时间 */
-  startedAt: number;
-  /** 上次重启时间（用于崩溃自动重启） */
-  lastRestartTime?: number;
+const HELP_TEXT = `
+${chalk.bold('用法：')} npx @feng3d/cts <${chalk.bold('命令')}> [选项]
+
+${chalk.bold('命令：')}
+  ${chalk.cyan('start')}      启动客户端（后台守护进程）
+  ${chalk.cyan('stop')}       停止客户端
+  ${chalk.cyan('restart')}    重启客户端
+  ${chalk.cyan('status')}     查看运行状态
+  ${chalk.cyan('proxies')}    管理代理映射
+  ${chalk.cyan('config')}     管理配置
+  ${chalk.cyan('boot')}      管理开机自启动
+  ${chalk.cyan('logs')}       查看日志
+  ${chalk.cyan('open')}       打开管理页面
+
+${chalk.bold('全局选项：')}
+  ${chalk.yellow('-h, --help')}     显示帮助信息
+  ${chalk.yellow('-v, --version')}  显示版本号
+
+${chalk.bold('start 命令选项：')}
+  ${chalk.yellow('--server <url>')}    服务器地址 (如: ws://localhost:9000)
+  ${chalk.yellow('--token <token>')}     认证令牌
+  ${chalk.yellow('--no-boot')}         不注册开机自启动
+  ${chalk.yellow('--open')}            启动后打开管理页面
+
+${chalk.bold('proxies 命令选项：')}
+  ${chalk.yellow('list')}              列出所有代理映射
+  ${chalk.yellow('add <remote:local>')}  添加代理 (如: 8080:3000 或 8080:3000:192.168.1.100)
+  ${chalk.yellow('remove <port>')}     移除指定端口的代理
+  ${chalk.yellow('clear')}            清空所有代理
+
+${chalk.bold('config 命令选项：')}
+  ${chalk.yellow('get [key]')}       获取配置项
+  ${chalk.yellow('set <key> <value>')}  设置配置项
+  ${chalk.yellow('list')}            列出所有配置
+  ${chalk.yellow('edit')}           编辑配置文件
+
+${chalk.bold('boot 命令选项：')}
+  ${chalk.yellow('enable')}           启用开机自启动
+  ${chalk.yellow('disable')}          禁用开机自启动
+
+${chalk.dim('配置文件位置：')} ${CONFIG_FILE}
+${chalk.dim('日志文件位置：')} ${LOG_FILE}
+${chalk.dim('管理页面：')} http://127.0.0.1:9001
+
+${chalk.dim('示例：')}
+  ${chalk.gray('# 启动客户端')}
+  npx @feng3d/cts start --server ws://192.168.1.100:9000 --token mytoken
+
+  ${chalk.gray('# 添加代理映射')}
+  npx @feng3d/cts proxies add 8080:3000
+  npx @feng3d/cts proxies add 2222:22:8080:192.168.1.100
+
+  ${chalk.gray('# 查看状态')}
+  npx @feng3d/cts status
+
+  ${chalk.gray('# 管理配置')}
+  npx @feng3d/cts config set serverUrl ws://localhost:9000
+  npx @feng3d/cts config set token mytoken
+
+  ${chalk.gray('# 开机自启动')}
+  npx @feng3d/cts boot enable
+`;
+
+/**
+ * 版本号
+ */
+const VERSION = '0.1.0';
+
+/**
+ * 显示帮助信息
+ */
+function showHelp() {
+  console.log(HELP_TEXT);
 }
 
 /**
- * 写入 PID 文件
+ * 显示版本号
  */
-function writePidFile(info: ClientInfo): void {
+function showVersion() {
+  console.log(`@feng3d/cts v${VERSION}`);
+}
+
+/**
+ * 读取配置文件
+ */
+function readConfig(): ClientConfig | null {
+  try {
+    const content = readFileSync(CONFIG_FILE, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 写入配置文件
+ */
+function writeConfig(config: ClientConfig): void {
   mkdirSync(CLIENT_DIR, { recursive: true });
-  writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
+  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
 /**
@@ -64,6 +153,14 @@ function readPidFile(): ClientInfo | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * 写入 PID 文件
+ */
+function writePidFile(info: ClientInfo): void {
+  mkdirSync(CLIENT_DIR, { recursive: true });
+  writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
 }
 
 /**
@@ -96,8 +193,8 @@ function isClientRunning(): boolean {
  */
 async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
   return new Promise((resolve) => {
-    const req = httpGet(`${ADMIN_URL}/_ctc/status`, { timeout: 3000 }, (res) => {
-      let body = '';
+    let body = '';
+    const req = fetch(`${ADMIN_URL}/_ctc/status`, { method: 'GET', timeout: 5000 }, (res) => {
       res.on('data', (chunk) => { body += chunk; });
       res.on('end', () => {
         try {
@@ -107,321 +204,129 @@ async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: b
         }
       });
     });
-
     req.on('error', () => resolve(null));
-    req.setTimeout(3000, () => resolve(null));
+    (req as any).setTimeout(5000, () => resolve(null));
   });
 }
 
 /**
- * 获取下一个代理编号（用于 CLI 命令行）
+ * 脚本路径
  */
-let nextProxyIndex = 1;
+const scriptPath = fileURLToPath(import.meta.url);
+const nodePath = process.execPath;
 
 /**
- * 获取下一个代理编号
+ * 主程序入口
  */
-function getProxyIndex(): number {
-  return nextProxyIndex++;
-}
-
-/**
- * 写入客户端配置文件
- */
-function writeConfig(config: ClientConfig): void {
-  mkdirSync(CLIENT_DIR, { recursive: true });
-  writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(config, null, 2));
-}
-
-/**
- * 读取客户端配置文件
- */
-function readConfig(): ClientConfig | null {
-  try {
-    const content = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
-    return JSON.parse(content);
-  } catch {
-    return null;
-  }
-}
-
 const program = new Command();
 
 program
-  .name('feng3d-ctc')
+  .name('@feng3d/cts')
   .description(chalk.blue('穿透 - 内网穿透客户端'))
-  .version('0.0.5');
+  .version(VERSION)
+  .option('-h, --help', '显示帮助信息', { action: () => { showHelp(); process.exit(0); }, isDefault: true })
+  .option('-v, --version', '显示版本号', { action: () => { showVersion(); process.exit(0); }, isDefault: true });
 
-// ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
-
-const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
-serveCmd.option('-c, --config <path>', '配置文件路径');
-serveCmd.action(async (options) => {
-  const configPath = options.config || DEFAULT_CONFIG_FILE;
-  let config: ClientConfig | null = null;
-
-  try {
-    const configContent = readFileSync(configPath, 'utf-8');
-    config = JSON.parse(configContent);
-  } catch {
-    console.log(chalk.red(`配置文件不存在或格式错误: ${configPath}`));
-    process.exit(1);
-  }
-
-  if (!config?.serverUrl) {
-    console.log(chalk.red('配置文件缺少 serverUrl 字段'));
-    process.exit(1);
-  }
-
-  // 动态导入并运行客户端
-  const { run } = await import('./index.js');
-  await run();
-});
-
-// ====== start 命令（后台守护进程 + 开机启动）======
-
-const serverOptions = [
-  ['-p, --port <port>', '控制端口', '9000'],
-  ['-a, --host <address>', '监听地址', '0.0.0.0'],
-  ['-t, --tokens <tokens>', '认证令牌（逗号分隔）'],
-  ['--tls-key <path>', 'TLS 私钥文件路径'],
-  ['--tls-cert <path>', 'TLS 证书文件路径'],
-  ['--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000'],
-  ['--session-timeout <ms>', '会话超时（毫秒）', '60000'],
-] as const;
+// ==================== start 命令 ====================
 
 const startCmd = program.command('start')
-  .description('启动客户端（后台运行并注册开机自启动）')
-  .option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
-
-for (const opt of serverOptions) {
-  if (opt.length === 3) {
-    startCmd.option(opt[0], opt[1], opt[2]);
-  } else {
-    startCmd.option(opt[0], opt[1]);
-  }
-}
-startCmd.option('--no-boot', '不注册开机自启动');
-startCmd.option('-o, --open', '启动后在浏览器中打开状态页面');
-
-startCmd.action(async (options) => {
-  // 1. 检测是否已在运行
-  if (isClientRunning()) {
-    console.log(chalk.red('客户端已在运行中'));
-    console.log(chalk.gray(`  PID: ${readPidFile()!.pid}`));
-    console.log(chalk.yellow('如需重启，请先使用 stop 命令停止'));
-    process.exit(1);
-  }
-
-  // 2. 确定使用的配置文件路径和读取配置
-  let configPath = DEFAULT_CONFIG_FILE;
-  let config: ClientConfig | null = null;
-
-  if (options.config) {
-    configPath = options.config;
-
-    // 从配置文件读取
-    try {
-      const configContent = readFileSync(configPath, 'utf-8');
-      config = JSON.parse(configContent);
-    } catch {
-      console.log(chalk.yellow('配置文件不存在或格式错误，使用默认配置'));
+  .description('启动客户端（后台守护进程）')
+  .option('--server <url>', '服务器地址')
+  .option('--token <token>', '认证令牌')
+  .option('--no-boot', '不注册开机自启动')
+  .option('-o, --open', '启动后打开管理页面')
+  .action(async (options) => {
+    // 检查是否已在运行
+    if (isClientRunning()) {
+      const info = readPidFile();
+      console.log(chalk.yellow('客户端已在运行中'));
+      console.log(chalk.gray(`  PID: ${info?.pid}`));
+      console.log(chalk.gray(`  服务器: ${info?.serverUrl}`));
+      return;
     }
-  } else {
-    // 检查是否有命令行参数（排除 --config、--no-boot、--open、--server、--token、--proxies）
-    const hasServerArg = process.argv.includes('--server');
-    const hasTokenArg = process.argv.includes('--token');
-    const hasProxiesArg = process.argv.includes('--proxies');
 
-    if (hasServerArg || hasTokenArg || hasProxiesArg) {
-      // 有命令行参数，直接使用默认配置文件 + 命令行参数覆盖
-      configPath = DEFAULT_CONFIG_FILE;
-      try {
-        const configContent = readFileSync(configPath, 'utf-8');
-        config = JSON.parse(configContent);
-      } catch {
-        config = null;
-      }
-    } else {
-      // 无命令行参数，使用配置文件中的所有配置
-      configPath = DEFAULT_CONFIG_FILE;
-      try {
-        const configContent = readFileSync(configPath, 'utf-8');
-        config = JSON.parse(configContent);
-      } catch {
-        config = null;
-      }
+    // 加载配置
+    let serverUrl = options.server;
+    let token = options.token;
 
-      // 配置文件不存在且无命令行参数时，使用默认配置并提示
-      if (!config || !config.serverUrl) {
-        // 使用默认配置
-        config = {
-          serverUrl: 'ws://localhost:9000',
-          token: '',
-          reconnectInterval: 30000,
-          maxReconnectAttempts: 10,
-          proxies: [],
-        };
-
-        // 提示用户可通过管理页面配置
-        console.log(chalk.yellow('提示: 未找到配置文件，使用默认配置'));
-        console.log(chalk.yellow('  如需自定义配置，请访问: http://127.0.0.1:9001'));
+    // 如果命令行没有指定，从配置文件读取
+    if (!serverUrl || !token) {
+      const config = readConfig();
+      if (config) {
+        if (!serverUrl) serverUrl = config.serverUrl;
+        if (!token) token = config.token || '';
       }
     }
-  }
 
-  // 3. 获取 serverUrl
-  const serverUrl = config?.serverUrl || 'ws://localhost:9000';
+    // 如果仍然没有服务器地址，使用默认值
+    if (!serverUrl) {
+      console.log(chalk.yellow('未指定服务器地址'));
+      console.log(chalk.gray('使用方法：'));
+      console.log(chalk.gray('  1. npx @feng3d/cts config set serverUrl <url>'));
+      console.log(chalk.gray('  2. npx @feng3d/cts start --server <url>'));
+      process.exit(1);
+    }
 
-  // 4. 解析路径
-  const scriptPath = fileURLToPath(import.meta.url);
-  const nodePath = process.execPath;
+    // 启动参数
+    const serveArgs = ['--config', CONFIG_FILE];
+    if (serverUrl) serveArgs.push('--server', serverUrl);
+    if (token) serveArgs.push('--token', token);
 
-  // 5. 构建 _serve 参数（始终使用 --config 指向配置文件）
-  const serveArgs = ['--config', configPath];
+    // 打开日志文件
+    const logFd = openSync(LOG_FILE, 'a');
 
-  // 6. 打开日志文件
-  const logFd = openSync(LOG_FILE, 'a');
-
-  // 7. 启动后台守护进程
-  const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
-    detached: true,
-    stdio: ['ignore', logFd, logFd],
-  });
-
-  // 立即写入 PID 文件，防止重复启动
-  if (child.pid !== undefined) {
-    writePidFile({
-      pid: child.pid,
-      serverUrl,
-      startedAt: Date.now(),
+    // 启动守护进程
+    const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
     });
-  }
 
-  child.unref();
-  closeSync(logFd);
-
-  // 输出管理页面地址和当前配置信息
-  console.log(chalk.green('客户端已在后台启动'));
-  console.log(chalk.gray(`  PID: ${child.pid}`));
-  console.log(chalk.gray(`  服务器: ${serverUrl}`));
-  console.log(chalk.gray(`  管理页面: http://127.0.0.1:9001/`));
-  console.log(chalk.gray(`  日志: ${LOG_FILE}`));
-
-  // 8. 监控守护进程，异常退出时自动重启
-  let restartCount = 0;
-  const MAX_RESTART_INTERVAL = 60000; // 60秒内最多重启一次
-
-  const watchDaemon = async () => {
-    return new Promise<void>((resolve) => {
-      child.on('exit', (code, signal) => {
-        // 正常退出（SIGTERM/SIGINT）不重启
-        if (signal === 'SIGTERM' || signal === 'SIGINT') {
-          resolve();
-          return;
-        }
-
-        // 异常退出，记录日志
-        const timestamp = new Date().toISOString();
-        const crashLog = `[${timestamp}] 守护进程异常退出: code=${code}, signal=${signal}\n`;
-        appendFileSync(LOG_FILE, crashLog);
-
-        // 检查是否需要重启（排除 stop 命令触发的退出）
-        const pidInfo = readPidFile();
-        if (pidInfo && pidInfo.pid === child.pid) {
-          // PID 文件仍指向我们启动的进程，说明是异常退出
-          const now = Date.now();
-          const timeSinceLastRestart = now - (pidInfo.lastRestartTime || 0);
-
-          if (timeSinceLastRestart > MAX_RESTART_INTERVAL) {
-            // 距离上次重启超过 60 秒，允许重启
-            restartCount = 0;
-          }
-
-          if (restartCount < 5) {
-            // 最多连续重启 5 次
-            restartCount++;
-            console.log(chalk.yellow(`守护进程异常退出，正在自动重启 (${restartCount}/5)...`));
-
-            // 延迟 3 秒后重启，避免快速崩溃循环
-            setTimeout(() => {
-              const newChild = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
-                detached: true,
-                stdio: ['ignore', 'ignore', 'ignore'],
-              });
-
-              if (newChild.pid !== undefined) {
-                writePidFile({
-                  pid: newChild.pid,
-                  serverUrl,
-                  startedAt: Date.now(),
-                  lastRestartTime: Date.now(),
-                });
-              }
-
-              newChild.unref();
-              watchDaemon(); // 继续监控新的守护进程
-            }, 3000);
-          } else {
-            console.log(chalk.red('守护进程频繁崩溃，停止自动重启'));
-            console.log(chalk.red('请检查日志排查问题'));
-            removePidFile();
-            resolve();
-          }
-        } else {
-          // PID 文件不存在或已变更，说明是 stop 命令停止的
-          resolve();
-        }
+    // 写入 PID 文件
+    if (child.pid !== undefined) {
+      writePidFile({
+        pid: child.pid,
+        serverUrl,
+        startedAt: Date.now(),
       });
-    });
-  };
+    }
 
-  // 启动监控
-  await watchDaemon();
+    child.unref();
+    closeSync(logFd);
 
-  // 9. 等待客户端启动（通过检查管理服务器）
-  let status: Awaited<ReturnType<typeof getClientStatus>> = null;
-  for (let i = 0; i < 10; i++) {
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    status = await getClientStatus();
-    if (status) break;
-  }
-
-  if (!status) {
-    console.log(chalk.yellow('客户端已启动，但管理服务器未就绪'));
-    console.log(chalk.gray('  可能的原因:'));
-    console.log(chalk.gray('    - 服务端未启动或无法连接'));
-    console.log(chalk.gray('    - 管理服务器端口 9001 被占用'));
-    console.log(chalk.gray(`  请查看日志: ${LOG_FILE}`));
-  } else {
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  PID: ${child.pid}`));
-    console.log(chalk.gray(`   服务器: ${serverUrl}`));
-    console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
-  }
+    console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
-  console.log(chalk.gray(`  日志: ${LOG_FILE}`));
-
-  // 9. 注册开机启动
-  if (options.boot !== false) {
-    try {
-      registerBoot({
-        isServer: false,
-        nodePath,
-        scriptPath,
-        args: serveArgs,
-      });
-      console.log(chalk.green('已注册开机自启动'));
-    } catch (err) {
-      console.log(chalk.yellow(`注册开机自启动失败: ${err instanceof Error ? err.message : err}`));
+    // 如果需要开机自启动
+    if (options.boot !== false) {
+      try {
+        registerBoot({
+          isServer: false,
+          nodePath,
+          scriptPath,
+          args: serveArgs,
+        });
+        console.log(chalk.green('已启用开机自启动'));
+      } catch (err: any) {
+        console.log(chalk.yellow(`注册开机自启动失败: ${err.message}`));
+      }
     }
-  }
-});
 
-// ====== stop 命令（停止）======
+    // 打开管理页面
+    if (options.open) {
+      setTimeout(() => {
+        const adminPage = 'http://127.0.0.1:9001';
+        console.log(chalk.gray(`打开管理页面: ${adminPage}`));
+        const openCmd = platform() === 'win32' ? 'start' : 'open';
+        execSync(`${openCmd} ${adminPage}`, { stdio: 'ignore' });
+      }, 1000);
+    }
+  });
 
-program
-  .command('stop')
+// ==================== stop 命令 ====================
+
+const stopCmd = program.command('stop')
   .alias('tz')
   .description('停止客户端')
   .action(async () => {
@@ -433,34 +338,79 @@ program
 
     try {
       process.kill(info.pid, 'SIGTERM');
-    } catch (err) {
-      console.log(chalk.yellow(`停止客户端失败: ${err instanceof Error ? err.message : err}`));
+    } catch (err: any) {
+      console.log(chalk.yellow(`停止失败: ${err.message}`));
+      return;
     }
 
     removePidFile();
-    unregisterBoot();
+
+    // 取消开机自启动
+    try {
+      unregisterBoot();
+    } catch (err: any) {
+      // ignore
+    }
+
     console.log(chalk.green('客户端已停止'));
   });
 
-// ====== status 命令（状态）======
+// ==================== restart 命令 ====================
 
-program
-  .command('status')
+const restartCmd = program.command('restart')
+  .description('重启客户端')
+  .action(async () => {
+    console.log(chalk.blue('正在重启客户端...'));
+
+    const info = readPidFile();
+    const pid = info?.pid;
+
+    // 先停止
+    if (pid) {
+      try {
+        process.kill(pid, 'SIGTERM');
+        console.log(chalk.gray(`已发送停止信号到 PID ${pid}`));
+      } catch (err: any) {
+        console.log(chalk.yellow(`停止失败: ${err.message}`));
+      }
+    }
+
+    // 等待进程结束
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 清除 PID 文件，让 start 命令重新读取
+    removePidFile();
+
+    // 重新启动（不带参数，使用配置文件）
+    const startChild = spawn(nodePath, [scriptPath, 'start'], {
+      detached: true,
+      stdio: 'ignore',
+    });
+
+    startChild.unref();
+    console.log(chalk.green('客户端已重启'));
+  });
+
+// ==================== status 命令 ====================
+
+const statusCmd = program.command('status')
   .alias('zt')
-  .description('查询客户端状态')
+  .description('查看运行状态')
   .action(async () => {
     const info = readPidFile();
     if (!info) {
       console.log(chalk.yellow('客户端未在运行'));
+      console.log(chalk.gray('状态: 已停止'));
       return;
     }
 
     console.log(chalk.blue.bold('穿透客户端状态'));
     console.log(chalk.gray(`  PID: ${info.pid}`));
-    console.log(chalk.gray(`   服务器: ${info.serverUrl}`));
-    console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
+    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`  启动时间: ${new Date(info.startedAt).toLocaleString('zh-CN')}`));
     console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 
+    // 获取详细状态
     const status = await getClientStatus();
     if (status) {
       const uptime = Math.floor(status.uptime / 1000);
@@ -472,122 +422,143 @@ program
         console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
       }
       if (status.reconnectAttempts && status.reconnectAttempts > 0) {
-        console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
+        console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts}次`));
       }
-
       if (status.proxies.length === 0) {
-        console.log(chalk.gray(`  代理映射: 无`));
+        console.log(chalk.gray('  代理映射: 无'));
       } else {
-        console.log(chalk.gray(`   代理映射: ${status.proxies.length} 个`));
+        console.log(chalk.gray(`  代理映射: ${status.proxies.length}个`));
         for (const proxy of status.proxies) {
           const index = (proxy as any).index ? `#${(proxy as any).index}` : ' -';
-          console.log(chalk.gray(`    ${index} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+          const target = (proxy as any).localHost || 'localhost';
+          console.log(chalk.gray(`    ${index} ${proxy.remotePort} -> ${target}:${proxy.localPort}`));
         }
       }
+    } else {
+      console.log(chalk.yellow('无法获取状态（管理服务器未就绪）'));
     }
   });
 
-// ====== add-proxy 命令（添加代理）======
+// ==================== proxies 命令 ====================
 
-program
-  .command('add-proxy')
-  .description('添加代理映射（需要客户端运行中）')
-  .argument('<remote>:<local>', '远程端口:本地端口（如 8080:3000 或 2222:22）')
-  .option('-h, --host <address>', '本地主机地址（默认为 localhost）')
+const proxiesCmd = program.command('proxies')
+  .description('管理代理映射')
+  .argument('[command]', '子命令：list, add, remove, clear', { default: 'list' });
+
+// proxies list 子命令
+proxiesCmd.command('list')
+  .description('列出现有代理映射')
+  .action(async () => {
+    const config = readConfig();
+    const proxies = config?.proxies || [];
+
+    if (proxies.length === 0) {
+      console.log(chalk.yellow('暂无代理映射'));
+      return;
+    }
+
+    console.log(chalk.blue.bold('代理映射列表：'));
+    for (let i = 0; i < proxies.length; i++) {
+      const proxy = proxies[i];
+      const index = (proxy as any).index ? `#${(proxy as any).index}` : ' -';
+      const target = (proxy as any).localHost || 'localhost';
+      console.log(`  ${chalk.cyan(index)} ${chalk.cyan(proxy.remotePort.toString())} -> ${chalk.cyan(target)}:${chalk.cyan(proxy.localPort.toString())}`);
+    }
+  });
+
+// proxies add 子命令
+proxiesCmd.command('add')
+  .description('添加代理映射')
+  .argument('<remote:local>', '远程端口:本地端口 (如: 8080:3000 或 8080:3000:192.168.1.100)')
+  .option('-h, --host <address>', '本地主机地址 (默认为 localhost)')
   .action(async (remoteLocal, options) => {
-    const info = readPidFile();
-    if (!info) {
-      console.log(chalk.yellow('客户端未在运行'));
-      console.log(chalk.gray('请先使用以下命令启动客户端：'));
-      console.log(chalk.gray('  npx @feng3d/ctc start'));
-      return;
-    }
-
     // 解析参数
-    const [remotePort, localPort] = remoteLocal.split(':');
-    if (!remotePort || !localPort) {
-      console.log(chalk.yellow('参数格式错误，应为 远程端口:本地端口（如 8080:3000 或 2222:22）'));
+    const parts = remoteLocal.split(':');
+    if (parts.length < 2) {
+      console.log(chalk.yellow('参数格式错误，应为：远程端口:本地端口'));
+      console.log(chalk.gray('示例：8080:3000 或 8080:3000:192.168.1.100'));
       return;
     }
 
-    const remote = parseInt(remotePort, 10);
-    const localParts = localPort.split(':');
-    const local = localParts.length === 2 ? parseInt(localParts[1], 10) : parseInt(localParts[0], 10);
-    const localHost = localParts.length === 2 ? localParts[0] : options.host || 'localhost';
+    const remotePort = parseInt(parts[0], 10);
+    let localPort: number;
+    let localHost = 'localhost';
 
-    // 通过管理服务器 API 添加代理
+    // 检查是否有第三部分（主机地址）
+    if (parts.length >= 3) {
+      localPort = parseInt(parts[1], 10);
+      localHost = parts[2];
+    } else {
+      localPort = parseInt(parts[1], 10);
+    }
+
+    // 验证端口
+    if (isNaN(remotePort) || remotePort < 1024 || remotePort > 65535) {
+      console.log(chalk.yellow('远程端口无效：1024-65535'));
+      return;
+    }
+    if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
+      console.log(chalk.yellow('本地端口无效：1-65535'));
+      return;
+    }
+
+    // 通过 API 添加
     try {
-      const res = await fetch(`http://127.0.0.1:9001/_ctc/proxies`, {
+      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          remotePort: remote,
-          localPort: local,
-          localHost: localHost,
+          remotePort,
+          localPort,
+          localHost,
         }),
       });
 
       if (res.ok) {
         console.log(chalk.green('代理映射已添加'));
-        console.log(chalk.gray(`  #${getProxyIndex()} :${remote} -> ${localHost}:${local}`));
 
-        // 更新配置文件
+        // 更新本地配置文件
         const config = readConfig();
         if (config) {
           if (!config.proxies) config.proxies = [];
           config.proxies.push({ remotePort, localPort, localHost });
           writeConfig(config);
-        } else {
-          // 创建新配置文件
-          writeConfig({
-            serverUrl: 'ws://localhost:9000',
-            token: '',
-            reconnectInterval: 30000,
-            maxReconnectAttempts: 10,
-            proxies: [],
-          });
         }
+
+        const target = localHost || 'localhost';
+        console.log(chalk.gray(`  ${remotePort} -> ${target}:${localPort}`));
+      } else if (res.status === 404) {
+        console.log(chalk.yellow('代理映射不存在（管理服务器未运行）'));
       } else {
-        console.log(chalk.red('添加代理失败'));
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`添加失败: ${data.error || '未知错误'}`));
       }
-    } catch (err) {
-      console.log(chalk.red(`请求失败: ${err instanceof Error ? err.message : String(err)}`));
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
     }
   });
 
-// ====== remove-proxy 命令（移除代理）======
-
-program
-  .command('remove-proxy')
-  .alias('rp')
-  .description('移除代理映射（需要客户端运行中）')
+// proxies remove 子命令
+proxiesCmd.command('remove')
+  .description('移除指定端口的代理映射')
   .argument('<port>', '远程端口号')
   .action(async (remotePort) => {
-    const info = readPidFile();
-    if (!info) {
-      console.log(chalk.yellow('客户端未在运行'));
-      console.log(chalk.gray('请先使用以下命令启动客户端：'));
-      console.log(chalk.gray('  npx @feng3d/ctc start'));
-      return;
-    }
-
     const port = parseInt(remotePort, 10);
-    if (isNaN(port)) {
-      console.log(chalk.yellow('端口号格式错误'));
+    if (isNaN(port) || port < 1024 || port > 65535) {
+      console.log(chalk.yellow('端口号无效：1024-65535'));
       return;
     }
 
-    // 通过管理服务器 API 删除代理
+    // 通过 API 删除
     try {
-      const res = await fetch(`http://127.0.0.1:9001/_ctc/proxies/${port}`, {
+      const res = await fetch(`${ADMIN_URL}/_ctc/proxies/${port}`, {
         method: 'DELETE',
       });
 
       if (res.ok) {
-        console.log(chalk.green('代理映射已移除'));
-        console.log(chalk.gray(`  端口: ${port}`));
+        console.log(chalk.green(`端口 ${port} 的代理映射已移除`));
 
-        // 更新配置文件
+        // 更新本地配置文件
         const config = readConfig();
         if (config && config.proxies) {
           const index = config.proxies.findIndex(p => p.remotePort === port);
@@ -602,9 +573,297 @@ program
         const data = await res.json() as { error?: string };
         console.log(chalk.red(`移除失败: ${data.error || '未知错误'}`));
       }
-    } catch (err) {
-      console.log(chalk.red(`请求失败: ${err instanceof Error ? err.message : String(err)}`));
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
     }
   });
 
+// proxies clear 子命令
+proxiesCmd.command('clear')
+  .description('清空所有代理映射')
+  .action(async () => {
+    try {
+      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('所有代理映射已清空'));
+
+        // 更新本地配置文件
+        const config = readConfig();
+        if (config) {
+          config.proxies = [];
+          writeConfig(config);
+        }
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`清空失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// ==================== config 命令 ====================
+
+const configCmd = program.command('config')
+  .description('管理配置')
+  .argument('[command]', '子命令：get, set, list, edit', { default: 'list' });
+
+// config get 子命令
+configCmd.command('get')
+  .description('获取配置项')
+  .argument('<key>', '配置项名称 (如: serverUrl, token, reconnectInterval, maxReconnectAttempts)')
+  .action(async (key) => {
+    const config = readConfig();
+    if (!config) {
+      console.log(chalk.yellow('配置文件不存在'));
+      return;
+    }
+
+    const value = (config as any)[key];
+    if (value === undefined) {
+      console.log(chalk.yellow(`配置项 "${key}" 不存在`));
+      console.log(chalk.gray('可用配置项：serverUrl, token, reconnectInterval, maxReconnectAttempts, proxies'));
+      return;
+    }
+
+    // 显示值
+    if (typeof value === 'object') {
+      console.log(chalk.green(`${key}:`));
+      console.log(chalk.gray(JSON.stringify(value, null, 2)));
+    } else {
+      console.log(chalk.green(`${key}: ${value}`));
+    }
+  });
+
+// config set 子命令
+configCmd.command('set')
+  .description('设置配置项')
+  .argument('<key>', '配置项名称')
+  .argument('<value>', '配置值')
+  .action(async (key, value) => {
+    // 读取现有配置
+    const config = readConfig() || {};
+    const oldValue = (config as any)[key];
+
+    // 解析值
+    let parsedValue: any = value;
+    if (key === 'serverUrl' || key === 'token') {
+      parsedValue = value;
+    } else if (key === 'reconnectInterval' || key === 'maxReconnectAttempts') {
+      parsedValue = parseInt(value, 10);
+    } else if (key === 'proxies') {
+      try {
+        parsedValue = JSON.parse(value);
+      } catch {
+        console.log(chalk.yellow('proxies 必须是有效的 JSON 数组'));
+        return;
+      }
+    }
+
+    // 更新配置
+    (config as any)[key] = parsedValue;
+    writeConfig(config as ClientConfig);
+
+    if (oldValue !== undefined) {
+      console.log(chalk.green(`已更新：${key}`));
+      console.log(chalk.gray(`  旧值: ${typeof oldValue === 'object' ? JSON.stringify(oldValue) : oldValue}`));
+      console.log(chalk.gray(`  新值: ${typeof parsedValue === 'object' ? JSON.stringify(parsedValue) : parsedValue}`));
+    } else {
+      console.log(chalk.green(`已设置：${key} = ${typeof parsedValue === 'object' ? JSON.stringify(parsedValue) : parsedValue}`));
+    }
+  });
+
+// config list 子命令
+configCmd.command('list')
+  .description('列出所有配置项')
+  .action(async () => {
+    const config = readConfig();
+    if (!config) {
+      console.log(chalk.yellow('配置文件不存在'));
+      return;
+    }
+
+    console.log(chalk.blue.bold('配置列表：'));
+    console.log(`  ${chalk.cyan('serverUrl')}:     ${chalk.gray(config.serverUrl || '(未设置)')}`);
+    console.log(`  ${chalk.cyan('token')}:         ${chalk.gray(config.token || '(未设置)')}`);
+    console.log(`  ${chalk.cyan('proxies')}:       ${chalk.gray(`[${config.proxies?.map(p => `${p.remotePort}:${p.localPort}`).join(', ') || '(空)'}]`)}`);
+    console.log(`  ${chalk.cyan('reconnectInterval')}: ${chalk.gray(config.reconnectInterval || 30000)}ms`);
+    console.log(`  ${chalk.cyan('maxReconnectAttempts')}: ${chalk.gray(config.maxReconnectAttempts || 10)}`);
+  });
+
+// config edit 子命令
+configCmd.command('edit')
+  .description('编辑配置文件')
+  .action(async () => {
+    const editors = {
+      win32: 'notepad',
+      darwin: 'open -a TextEdit',
+      linux: 'nano',
+    };
+    const editor = editors[platform() as keyof typeof editors] || 'vi';
+    const configPath = CONFIG_FILE;
+
+    console.log(chalk.gray(`打开配置文件：${configPath}`));
+    console.log(chalk.gray(`使用编辑器：${editor}`));
+
+    try {
+      execSync(`${editor} "${configPath}"`, { stdio: 'ignore' });
+    } catch (err: any) {
+      console.log(chalk.yellow(`打开失败: ${err.message}`));
+      console.log(chalk.gray('请手动打开：${configPath}`));
+    }
+  });
+
+// ==================== boot 命令 ====================
+
+const bootCmd = program.command('boot')
+  .description('管理开机自启动')
+  .argument('[command]', '子命令：enable, disable, status', { default: 'status' });
+
+// boot status 子命令
+bootCmd.command('status')
+  .description('查看开机自启动状态')
+  .action(async () => {
+    const registered = isBootRegistered();
+    const status = registered ? chalk.green('已启用') : chalk.yellow('未启用');
+    console.log(chalk.blue('开机自启动状态：') + status);
+
+    if (registered) {
+      const info = readPidFile();
+      if (info) {
+        console.log(chalk.gray(`  启动文件将运行：${info.serverUrl}`));
+      }
+    }
+  });
+
+// boot enable 子命令
+bootCmd.command('enable')
+  .description('启用开机自启动')
+  .action(async () => {
+    const info = readPidFile();
+    if (!info) {
+      console.log(chalk.yellow('客户端未启动过，请先使用 start 命令启动'));
+      return;
+    }
+
+    try {
+      registerBoot({
+        isServer: false,
+        nodePath,
+        scriptPath,
+        args: info.args,
+      });
+      console.log(chalk.green('已启用开机自启动'));
+    } catch (err: any) {
+      console.log(chalk.red(`启用失败: ${err.message}`));
+    }
+  });
+
+// boot disable 子命令
+bootCmd.command('disable')
+  .description('禁用开机自启动')
+  .action(async () => {
+    try {
+      unregisterBoot();
+      console.log(chalk.green('已禁用开机自启动'));
+    } catch (err: any) {
+      console.log(chalk.red(`禁用失败: ${err.message}`));
+    }
+  });
+
+// ==================== logs 命令 ====================
+
+const logsCmd = program.command('logs')
+  .description('查看或跟踪日志')
+  .option('-f, --follow', '跟踪日志输出（类似 tail -f）')
+  .action(async (options) => {
+    if (!existsSync(LOG_FILE)) {
+      console.log(chalk.yellow('日志文件不存在'));
+      return;
+    }
+
+    if (options.follow) {
+      console.log(chalk.blue('跟踪日志输出 (Ctrl+C 退出)...'));
+      console.log(chalk.dim('---'));
+
+      const logFd = openSync(LOG_FILE, 'r');
+      const buffer = Buffer.alloc(1024);
+      let pos = 0;
+
+      const readLog = () => {
+        const bytesRead = readFileSync(logFd, buffer, 0, buffer.length, pos);
+        if (bytesRead > 0) {
+          const content = buffer.toString('utf-8', 0, bytesRead);
+          process.stdout.write(content);
+          pos += bytesRead;
+        }
+      };
+
+      // 读取最新内容
+      readLog();
+
+      // 监控文件变化
+      const watcher = () => {
+        try {
+          const stat = readFileSync(LOG_FILE, { encoding: 'utf-8' } as any);
+          const newSize = stat.size;
+          if (newSize > pos) {
+            pos = newSize;
+            readLog();
+          }
+        } catch (err) {
+          // ignore
+        }
+      };
+
+      // 每秒检查一次
+      const interval = setInterval(watcher, 1000);
+
+      // 处理退出
+      process.on('SIGINT', () => {
+        clearInterval(interval);
+        closeSync(logFd);
+        process.stdout.write('\n');
+        console.log(chalk.gray('\n--- 日志跟踪已结束'));
+        process.exit(0);
+      });
+    } else {
+      // 显示所有日志
+      const content = readFileSync(LOG_FILE, 'utf-8');
+      console.log(chalk.blue('最近日志：'));
+      console.log(chalk.dim('---'));
+      console.log(content.split('\n').slice(-30).join('\n'));
+      console.log(chalk.dim('---'));
+      console.log(chalk.gray(`(日志文件：${LOG_FILE})`));
+    }
+  });
+
+// ==================== open 命令 ====================
+
+const openCmd = program.command('open')
+  .description('在浏览器中打开管理页面')
+  .action(async () => {
+    const adminPage = 'http://127.0.0.1:9001';
+    const openCmd = platform() === 'win32' ? 'start' : 'open';
+    console.log(chalk.gray(`打开管理页面: ${adminPage}`));
+    try {
+      execSync(`${openCmd} ${adminPage}`, { stdio: 'ignore' });
+      console.log(chalk.green('管理页面已在浏览器中打开'));
+    } catch (err: any) {
+      console.log(chalk.yellow(`打开失败: ${err.message}`));
+      console.log(chalk.gray(`请手动访问：${adminPage}`));
+    }
+  });
+
+// ==================== 默认处理 ====================
+
+// 当没有指定命令时显示帮助
+program.action(() => {
+  showHelp();
+});
+
+// 解析命令行参数
 program.parse();
