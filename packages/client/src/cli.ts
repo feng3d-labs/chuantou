@@ -14,8 +14,8 @@ import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
-import { WebSocket } from 'ws';
-import { MessageType, createMessage, ProxyConfig } from '@feng3d/chuantou-shared';
+import { get as httpGet } from 'http';
+import { ProxyConfig } from '@feng3d/chuantou-shared';
 
 /** 客户端实例数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
@@ -325,24 +325,30 @@ program
       return;
     }
 
-    const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
-    const minutes = Math.floor(uptime / 60);
-    const seconds = uptime % 60;
-
     console.log(chalk.blue.bold('穿透客户端状态'));
-    console.log(chalk.gray(`  运行中: 是`));
-    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
     console.log(chalk.gray(`  PID: ${info.pid}`));
-    console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
 
-    // 尝试获取代理列表状态
-    try {
-      const proxies = await getProxiesFromRunningClient(info.serverUrl);
-      if (proxies.length > 0) {
-        console.log(chalk.gray(`  代理数量: ${proxies.length}`));
+    // 从管理服务器获取实时状态
+    const status = await getClientStatus();
+    if (status) {
+      const uptime = Math.floor(status.uptime / 1000);
+      const minutes = Math.floor(uptime / 60);
+      const seconds = uptime % 60;
+
+      console.log(chalk.gray(`  连接状态: ${status.authenticated ? '已认证' : status.connected ? '已连接' : '未连接'}`));
+      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+      console.log(chalk.gray(`  代理数量: ${status.proxies.length} 个`));
+      if (status.reconnectAttempts > 0) {
+        console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
       }
-    } catch {
-      // 无法获取代理列表，可能客户端还未完全启动
+    } else {
+      // 管理服务器不可用，回退到 PID 文件信息
+      const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
+      const minutes = Math.floor(uptime / 60);
+      const seconds = uptime % 60;
+      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+      console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
     }
   });
 
@@ -358,20 +364,21 @@ program
       return;
     }
 
-    try {
-      const proxies = await getProxiesFromRunningClient(info.serverUrl);
-      if (proxies.length === 0) {
-        console.log(chalk.yellow('没有代理映射'));
-        return;
-      }
+    const status = await getClientStatus();
+    if (!status) {
+      console.log(chalk.yellow('无法连接到管理服务器，客户端可能还未完全启动'));
+      return;
+    }
 
-      console.log(chalk.blue.bold('当前代理映射:'));
-      console.log();
-      for (const proxy of proxies) {
-        console.log(chalk.gray(`  :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-      }
-    } catch (err) {
-      console.log(chalk.yellow(`获取代理列表失败: ${err instanceof Error ? err.message : err}`));
+    if (status.proxies.length === 0) {
+      console.log(chalk.yellow('没有代理映射'));
+      return;
+    }
+
+    console.log(chalk.blue.bold('当前代理映射:'));
+    console.log();
+    for (const proxy of status.proxies) {
+      console.log(chalk.gray(`  :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
     }
   });
 
@@ -438,37 +445,28 @@ async function addProxyToRunningClient(serverUrl: string, token: string | undefi
   throw new Error('添加代理超时');
 }
 
+/** 管理服务器地址 */
+const ADMIN_URL = 'http://127.0.0.1:9001';
+
 /**
- * 从正在运行的客户端获取代理列表
+ * 从管理服务器获取客户端状态
  */
-async function getProxiesFromRunningClient(serverUrl: string): Promise<ProxyConfig[]> {
-  return new Promise<ProxyConfig[]>((resolve, reject) => {
-    const ws = new WebSocket(serverUrl);
-
-    const timeout = setTimeout(() => {
-      ws.close();
-      resolve([]);
-    }, 3000);
-
-    ws.on('open', async () => {
-      // 发送获取代理列表请求（使用心跳消息保持连接）
-      const heartbeatMsg = createMessage(MessageType.HEARTBEAT, {
-        timestamp: Date.now(),
+async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts: number } | null> {
+  return new Promise((resolve) => {
+    const req = httpGet(`${ADMIN_URL}/_ctc/status`, { timeout: 3000 }, (res) => {
+      let body = '';
+      res.on('data', (chunk) => { body += chunk; });
+      res.on('end', () => {
+        try {
+          resolve(JSON.parse(body));
+        } catch {
+          resolve(null);
+        }
       });
-
-      ws.send(JSON.stringify(heartbeatMsg));
-
-      // 这里简化处理，实际上应该有一个专门的 GET_PROXIES 消息类型
-      // 目前返回空数组
-      clearTimeout(timeout);
-      ws.close();
-      resolve([]);
     });
 
-    ws.on('error', () => {
-      clearTimeout(timeout);
-      resolve([]);
-    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
   });
 }
 
