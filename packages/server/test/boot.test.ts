@@ -2,81 +2,116 @@
  * boot 模块单元测试
  * 测试开机自启动的注册、注销和状态查询（使用 mock 避免真实系统调用）
  */
-import { beforeEach, afterEach } from 'vitest';
-import { writeFileSync, mkdirSync, unlinkSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, readFileSync, unlinkSync, existsSync, rmdirSync } from 'fs';
 import { randomUUID } from 'crypto';
-import { execSync } from 'child_process';
-import { registerBoot, unregisterBoot, isBootRegistered, type StartupInfo } from '@feng3d/chuantou-shared/boot';
+import { join } from 'path';
+import * as os from 'os';
+
+// mock os 模块
+const testHomeDirs = new Map<string, string>();
+
+vi.mock('os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('os')>();
+  return {
+    ...actual,
+    homedir: () => {
+      // 从 Map 获取当前测试的 home dir
+      const currentTestDir = testHomeDirs.get('current');
+      return currentTestDir ?? actual.homedir();
+    },
+  };
+});
 
 // mock child_process.execSync 避免真实系统调用
 vi.mock('child_process', () => ({
   execSync: vi.fn(),
 }));
 
-// mock os.homedir 使用临时目录
-const testHomeDir = join(tmpdir(), `chuantou-test-${randomUUID()}`);
-vi.mock('os', async (importOriginal) => {
-  const original = await importOriginal<typeof import('os')>();
-  return {
-    ...original,
-    homedir: () => testHomeDir,
-  };
-});
-
+const { execSync } = await import('child_process');
 const mockExecSync = vi.mocked(execSync);
 
-// boot 模块
-const boot = await import('@feng3d/chuantou-shared/boot');
-
-const testServerStartupInfo = {
-  isServer: true,
-  nodePath: '/usr/bin/node',
-  scriptPath: '/path/to/cli.js',
-  args: ['--port', '9000', '--host', '0.0.0.0'],
-};
-
-const testClientStartupInfo = {
-  isServer: false,
-  nodePath: '/usr/bin/node',
-  scriptPath: '/path/to/cli.js',
-  args: ['--server', 'ws://localhost:9000', '--token', 'test'],
-};
+// 为了避免模块缓存问题，每个测试套件使用不同的 home dir
+const serverHomeDir = join(os.tmpdir(), `chuantou-test-server-${randomUUID()}`);
+const clientHomeDir = join(os.tmpdir(), `chuantou-test-client-${randomUUID()}`);
 
 describe('boot 模块', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    // 创建测试目录
-    mkdirSync(join(testHomeDir, '.chuantou'), { recursive: true });
-  });
+  const testServerStartupInfo = {
+    isServer: true,
+    nodePath: '/usr/bin/node',
+    scriptPath: '/path/to/cli.js',
+    args: ['--port', '9000', '--host', '0.0.0.0'],
+  };
 
-  afterEach(() => {
-    // 清理测试目录
+  const testClientStartupInfo = {
+    isServer: false,
+    nodePath: '/usr/bin/node',
+    scriptPath: '/path/to/cli.js',
+    args: ['--server', 'ws://localhost:9000', '--token', 'test'],
+  };
+
+  // 清理函数
+  function cleanupTestDir(homeDir: string) {
     try {
-      unlinkSync(join(testHomeDir, '.chuantou', 'server', 'boot.json'));
-      unlinkSync(join(testHomeDir, '.chuantou', 'client', 'boot.json'));
-    } catch {
-      // ignore
-    }
+      unlinkSync(join(homeDir, '.chuantou', 'server', 'boot.json'));
+    } catch { /* ignore */ }
+    try {
+      unlinkSync(join(homeDir, '.chuantou', 'client', 'boot.json'));
+    } catch { /* ignore */ }
+    try {
+      unlinkSync(join(homeDir, '.chuantou', 'server', 'feng3d-cts.vbs'));
+    } catch { /* ignore */ }
+    try {
+      unlinkSync(join(homeDir, '.chuantou', 'client', 'feng3d-ctc.vbs'));
+    } catch { /* ignore */ }
+    try {
+      rmdirSync(join(homeDir, '.chuantou', 'server'));
+    } catch { /* ignore */ }
+    try {
+      rmdirSync(join(homeDir, '.chuantou', 'client'));
+    } catch { /* ignore */ }
+    try {
+      rmdirSync(join(homeDir, '.chuantou'));
+    } catch { /* ignore */ }
+  }
+
+  // 所有测试后清理
+  afterAll(() => {
+    cleanupTestDir(serverHomeDir);
+    cleanupTestDir(clientHomeDir);
   });
 
   describe('服务端启动配置', () => {
-    it('registerBoot 应该保存服务端启动信息到 server/boot.json', async () => {
+    let bootModule: any;
+
+    beforeAll(async () => {
+      vi.clearAllMocks();
+      testHomeDirs.set('current', serverHomeDir);
+      mkdirSync(join(serverHomeDir, '.chuantou'), { recursive: true });
       mockExecSync.mockImplementation(() => Buffer.from(''));
-      boot.registerBoot(testServerStartupInfo);
-      const saved = JSON.parse(
-        readFileSync(join(testHomeDir, '.chuantou', 'server', 'boot.json'), 'utf-8'),
-      );
+      bootModule = await import('@feng3d/chuantou-shared');
+    });
+
+    afterAll(() => {
+      testHomeDirs.delete('current');
+      vi.restoreAllMocks();
+    });
+
+    it('registerBoot 应该保存服务端启动信息到 server/boot.json', async () => {
+      bootModule.registerBoot(testServerStartupInfo);
+      const bootPath = join(serverHomeDir, '.chuantou', 'server', 'boot.json');
+      expect(existsSync(bootPath)).toBe(true);
+      const saved = JSON.parse(readFileSync(bootPath, 'utf-8'));
       expect(saved).toEqual(testServerStartupInfo);
       expect(mockExecSync).toHaveBeenCalledWith(
         expect.stringContaining('reg add'),
+        expect.objectContaining({ shell: 'cmd.exe' }),
       );
     });
 
     it('服务端 VBS 脚本应放在 server 目录', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
-      boot.registerBoot(testServerStartupInfo);
+      bootModule.registerBoot(testServerStartupInfo);
       const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
       const vbsCall = calls.find((c) => c.includes('feng3d-cts.vbs'));
       expect(vbsCall).toBeDefined();
@@ -84,46 +119,56 @@ describe('boot 模块', () => {
     });
 
     it('unregisterBoot 应该删除服务端 boot.json', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
       // 先写入配置文件
-      boot.registerBoot(testServerStartupInfo);
-      boot.unregisterBoot();
+      bootModule.registerBoot(testServerStartupInfo);
+      const bootPath = join(serverHomeDir, '.chuantou', 'server', 'boot.json');
+      expect(existsSync(bootPath)).toBe(true);
+
+      bootModule.unregisterBoot();
+
       // 验证文件已被删除
-      const exists = () => {
-        try {
-          readFileSync(join(testHomeDir, '.chuantou', 'server', 'boot.json'), 'utf-8');
-          return true;
-        } catch {
-          return false;
-        }
-      };
-      expect(exists()).toBe(false);
+      expect(existsSync(bootPath)).toBe(false);
     });
 
     it('isBootRegistered 应检测服务端启动状态', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
-      expect(boot.isBootRegistered()).toBe(false);
-      boot.registerBoot(testServerStartupInfo);
-      expect(boot.isBootRegistered()).toBe(true);
+      cleanupTestDir(serverHomeDir);
+      expect(bootModule.isBootRegistered()).toBe(false);
+      bootModule.registerBoot(testServerStartupInfo);
+      expect(bootModule.isBootRegistered()).toBe(true);
       // 清除服务端配置
-      boot.unregisterBoot(true);
-      expect(boot.isBootRegistered()).toBe(false);
+      bootModule.unregisterBoot();
+      expect(bootModule.isBootRegistered()).toBe(false);
     });
   });
 
   describe('客户端启动配置', () => {
-    it('registerBoot 应该保存客户端启动信息到 client/boot.json', async () => {
+    let bootModule: any;
+
+    beforeAll(async () => {
+      vi.clearAllMocks();
+      testHomeDirs.set('current', clientHomeDir);
+      mkdirSync(join(clientHomeDir, '.chuantou'), { recursive: true });
       mockExecSync.mockImplementation(() => Buffer.from(''));
-      boot.registerBoot(testClientStartupInfo);
-      const saved = JSON.parse(
-        readFileSync(join(testHomeDir, '.chuantou', 'client', 'boot.json'), 'utf-8'),
-      );
+      // 使用 vi.isolateModules 来重新导入模块
+      vi.unmock('@feng3d/chuantou-shared');
+      vi.resetModules();
+      bootModule = await import('@feng3d/chuantou-shared');
+    });
+
+    afterAll(() => {
+      testHomeDirs.delete('current');
+    });
+
+    it('registerBoot 应该保存客户端启动信息到 client/boot.json', async () => {
+      bootModule.registerBoot(testClientStartupInfo);
+      const bootPath = join(clientHomeDir, '.chuantou', 'client', 'boot.json');
+      expect(existsSync(bootPath)).toBe(true);
+      const saved = JSON.parse(readFileSync(bootPath, 'utf-8'));
       expect(saved).toEqual(testClientStartupInfo);
     });
 
     it('客户端 VBS 脚本应放在 client 目录', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
-      boot.registerBoot(testClientStartupInfo);
+      bootModule.registerBoot(testClientStartupInfo);
       const calls = mockExecSync.mock.calls.map((c) => String(c[0]));
       const vbsCall = calls.find((c) => c.includes('feng3d-ctc.vbs'));
       expect(vbsCall).toBeDefined();
@@ -131,48 +176,65 @@ describe('boot 模块', () => {
     });
 
     it('unregisterBoot 应该删除客户端 boot.json', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
       // 先写入配置文件
-      boot.registerBoot(testClientStartupInfo);
-      boot.unregisterBoot();
+      bootModule.registerBoot(testClientStartupInfo);
+      const bootPath = join(clientHomeDir, '.chuantou', 'client', 'boot.json');
+      expect(existsSync(bootPath)).toBe(true);
+
+      bootModule.unregisterBoot();
+
       // 验证文件已被删除
-      const exists = () => {
-        try {
-          readFileSync(join(testHomeDir, '.chuantou', 'client', 'boot.json'), 'utf-8');
-          return true;
-        } catch {
-          return false;
-        }
-      };
-      expect(exists()).toBe(false);
+      expect(existsSync(bootPath)).toBe(false);
     });
   });
 
   describe('状态查询（混合模式）', () => {
-    it('loadStartupInfo 应优先读取服务端配置', async () => {
+    let bootModule: any;
+    const mixedHomeDir = join(os.tmpdir(), `chuantou-test-mixed-${randomUUID()}`);
+
+    beforeAll(async () => {
+      vi.clearAllMocks();
+      testHomeDirs.set('current', mixedHomeDir);
+      mkdirSync(join(mixedHomeDir, '.chuantou'), { recursive: true });
       mockExecSync.mockImplementation(() => Buffer.from(''));
+      vi.resetModules();
+      bootModule = await import('@feng3d/chuantou-shared');
+    });
+
+    afterAll(() => {
+      testHomeDirs.delete('current');
+      cleanupTestDir(mixedHomeDir);
+    });
+
+    it('loadStartupInfo 应优先读取服务端配置', async () => {
       // 只写入服务端配置
-      boot.registerBoot(testServerStartupInfo);
-      const loaded = boot.loadStartupInfo();
+      bootModule.registerBoot(testServerStartupInfo);
+      const loaded = bootModule.loadStartupInfo();
       expect(loaded).toEqual(testServerStartupInfo);
     });
 
     it('当服务端配置不存在时应返回客户端配置', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
+      // 清理之前的数据
+      cleanupTestDir(mixedHomeDir);
+      mkdirSync(join(mixedHomeDir, '.chuantou'), { recursive: true });
+
       // 只写入客户端配置
-      boot.registerBoot(testClientStartupInfo);
-      const loaded = boot.loadStartupInfo();
+      bootModule.registerBoot(testClientStartupInfo);
+      const loaded = bootModule.loadStartupInfo();
       expect(loaded).toEqual(testClientStartupInfo);
     });
 
     it('isBootRegistered 应根据 loadStartupInfo 自动识别', async () => {
-      mockExecSync.mockImplementation(() => Buffer.from(''));
-      expect(boot.isBootRegistered()).toBe(false);
-      boot.registerBoot(testServerStartupInfo);
-      expect(boot.isBootRegistered()).toBe(true);
+      // 清理之前的数据
+      cleanupTestDir(mixedHomeDir);
+      mkdirSync(join(mixedHomeDir, '.chuantou'), { recursive: true });
+
+      expect(bootModule.isBootRegistered()).toBe(false);
+      bootModule.registerBoot(testServerStartupInfo);
+      expect(bootModule.isBootRegistered()).toBe(true);
       // 清除服务端配置
-      boot.unregisterBoot(true);
-      expect(boot.isBootRegistered()).toBe(false);
+      bootModule.unregisterBoot();
+      expect(bootModule.isBootRegistered()).toBe(false);
     });
   });
 });
