@@ -18,7 +18,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, openSync, closeSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, openSync, closeSync, readSync, statSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
@@ -28,6 +28,22 @@ import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou
 
 /** 数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
+
+/**
+ * PID 文件信息接口
+ */
+interface PidFileInfo {
+  /** 进程 ID */
+  pid: number;
+  /** 服务器地址 */
+  serverUrl: string;
+  /** 启动时间戳 */
+  startedAt: number;
+  /** 最后重启时间戳（可选） */
+  lastRestartTime?: number;
+  /** 启动参数（用于开机自启动） */
+  args?: string[];
+}
 /** 客户端目录 */
 const CLIENT_DIR = join(DATA_DIR, 'client');
 /** 配置文件 */
@@ -147,7 +163,7 @@ function writeConfig(config: ClientConfig): void {
 /**
  * 读取 PID 文件
  */
-function readPidFile(): ClientInfo | null {
+function readPidFile(): PidFileInfo | null {
   try {
     return JSON.parse(readFileSync(PID_FILE, 'utf-8'));
   } catch {
@@ -158,7 +174,7 @@ function readPidFile(): ClientInfo | null {
 /**
  * 写入 PID 文件
  */
-function writePidFile(info: ClientInfo): void {
+function writePidFile(info: PidFileInfo): void {
   mkdirSync(CLIENT_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
 }
@@ -192,21 +208,14 @@ function isClientRunning(): boolean {
  * 获取客户端状态
  */
 async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
-  return new Promise((resolve) => {
-    let body = '';
-    const req = fetch(`${ADMIN_URL}/_ctc/status`, { method: 'GET', timeout: 5000 }, (res) => {
-      res.on('data', (chunk) => { body += chunk; });
-      res.on('end', () => {
-        try {
-          resolve(JSON.parse(body));
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-    req.on('error', () => resolve(null));
-    (req as any).setTimeout(5000, () => resolve(null));
-  });
+  try {
+    const res = await fetch(`${ADMIN_URL}/_ctc/status`, { method: 'GET' });
+    if (!res.ok) return null;
+    const data = await res.json() as { proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number };
+    return data;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -224,8 +233,14 @@ program
   .name('@feng3d/cts')
   .description(chalk.blue('穿透 - 内网穿透客户端'))
   .version(VERSION)
-  .option('-h, --help', '显示帮助信息', { action: () => { showHelp(); process.exit(0); }, isDefault: true })
-  .option('-v, --version', '显示版本号', { action: () => { showVersion(); process.exit(0); }, isDefault: true });
+  .option('-h, --help', '显示帮助信息')
+  .hook('preAction', (thisCommand) => {
+    const options = thisCommand.opts();
+    if ((options as any).help) {
+      showHelp();
+      process.exit(0);
+    }
+  });
 
 // ==================== start 命令 ====================
 
@@ -713,7 +728,7 @@ configCmd.command('edit')
       execSync(`${editor} "${configPath}"`, { stdio: 'ignore' });
     } catch (err: any) {
       console.log(chalk.yellow(`打开失败: ${err.message}`));
-      console.log(chalk.gray('请手动打开：${configPath}`));
+      console.log(chalk.gray(`请手动打开：`));
     }
   });
 
@@ -754,7 +769,7 @@ bootCmd.command('enable')
         isServer: false,
         nodePath,
         scriptPath,
-        args: info.args,
+        args: info.args || [],
       });
       console.log(chalk.green('已启用开机自启动'));
     } catch (err: any) {
@@ -794,11 +809,15 @@ const logsCmd = program.command('logs')
       let pos = 0;
 
       const readLog = () => {
-        const bytesRead = readFileSync(logFd, buffer, 0, buffer.length, pos);
-        if (bytesRead > 0) {
-          const content = buffer.toString('utf-8', 0, bytesRead);
-          process.stdout.write(content);
-          pos += bytesRead;
+        try {
+          const bytesRead = readSync(logFd, buffer, 0, buffer.length, pos);
+          if (bytesRead > 0) {
+            const content = buffer.toString('utf-8', 0, bytesRead);
+            process.stdout.write(content);
+            pos += bytesRead;
+          }
+        } catch {
+          // ignore
         }
       };
 
@@ -808,10 +827,9 @@ const logsCmd = program.command('logs')
       // 监控文件变化
       const watcher = () => {
         try {
-          const stat = readFileSync(LOG_FILE, { encoding: 'utf-8' } as any);
+          const stat = statSync(LOG_FILE);
           const newSize = stat.size;
           if (newSize > pos) {
-            pos = newSize;
             readLog();
           }
         } catch (err) {
