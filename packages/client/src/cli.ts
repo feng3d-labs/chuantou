@@ -10,7 +10,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync, appendFileSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
@@ -67,6 +67,8 @@ interface ClientInfo {
   pid: number;
   /** 启动时间 */
   startedAt: number;
+  /** 上次重启时间（用于崩溃自动重启） */
+  lastRestartTime?: number;
 }
 
 /**
@@ -172,6 +174,32 @@ program
   .name('feng3d-ctc')
   .description(chalk.blue('穿透 - 内网穿透客户端'))
   .version('0.0.5');
+
+// ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
+
+const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
+serveCmd.option('-c, --config <path>', '配置文件路径');
+serveCmd.action(async (options) => {
+  const configPath = options.config || DEFAULT_CONFIG_FILE;
+  let config: ClientConfig | null = null;
+
+  try {
+    const configContent = readFileSync(configPath, 'utf-8');
+    config = JSON.parse(configContent);
+  } catch {
+    console.log(chalk.red(`配置文件不存在或格式错误: ${configPath}`));
+    process.exit(1);
+  }
+
+  if (!config?.server) {
+    console.log(chalk.red('配置文件缺少 server 字段'));
+    process.exit(1);
+  }
+
+  // 动态导入并运行客户端
+  const { run } = await import('./index.js');
+  await run();
+});
 
 // ====== start 命令（后台守护进程 + 开机启动）======
 
@@ -284,7 +312,78 @@ startCmd.action(async (options) => {
   child.unref();
   closeSync(logFd);
 
-  // 8. 等待客户端启动（通过检查管理服务器）
+  // 8. 监控守护进程，异常退出时自动重启
+  let restartCount = 0;
+  const MAX_RESTART_INTERVAL = 60000; // 60秒内最多重启一次
+
+  const watchDaemon = async () => {
+    return new Promise<void>((resolve) => {
+      child.on('exit', (code, signal) => {
+        // 正常退出（SIGTERM/SIGINT）不重启
+        if (signal === 'SIGTERM' || signal === 'SIGINT') {
+          resolve();
+          return;
+        }
+
+        // 异常退出，记录日志
+        const timestamp = new Date().toISOString();
+        const crashLog = `[${timestamp}] 守护进程异常退出: code=${code}, signal=${signal}\n`;
+        appendFileSync(LOG_FILE, crashLog);
+
+        // 检查是否需要重启（排除 stop 命令触发的退出）
+        const pidInfo = readPidFile();
+        if (pidInfo && pidInfo.pid === child.pid) {
+          // PID 文件仍指向我们启动的进程，说明是异常退出
+          const now = Date.now();
+          const timeSinceLastRestart = now - (pidInfo.lastRestartTime || 0);
+
+          if (timeSinceLastRestart > MAX_RESTART_INTERVAL) {
+            // 距离上次重启超过 60 秒，允许重启
+            restartCount = 0;
+          }
+
+          if (restartCount < 5) {
+            // 最多连续重启 5 次
+            restartCount++;
+            console.log(chalk.yellow(`守护进程异常退出，正在自动重启 (${restartCount}/5)...`));
+
+            // 延迟 3 秒后重启，避免快速崩溃循环
+            setTimeout(() => {
+              const newChild = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
+                detached: true,
+                stdio: ['ignore', 'ignore', 'ignore'],
+              });
+
+              if (newChild.pid !== undefined) {
+                writePidFile({
+                  pid: newChild.pid,
+                  serverUrl,
+                  startedAt: Date.now(),
+                  lastRestartTime: Date.now(),
+                });
+              }
+
+              newChild.unref();
+              watchDaemon(); // 继续监控新的守护进程
+            }, 3000);
+          } else {
+            console.log(chalk.red('守护进程频繁崩溃，停止自动重启'));
+            console.log(chalk.red('请检查日志排查问题'));
+            removePidFile();
+            resolve();
+          }
+        } else {
+          // PID 文件不存在或已变更，说明是 stop 命令停止的
+          resolve();
+        }
+      });
+    });
+  };
+
+  // 启动监控
+  await watchDaemon();
+
+  // 9. 等待客户端启动（通过检查管理服务器）
   let status: Awaited<ReturnType<typeof getClientStatus>> = null;
   for (let i = 0; i < 10; i++) {
     await new Promise(resolve => setTimeout(resolve, 1000));

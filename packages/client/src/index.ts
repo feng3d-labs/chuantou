@@ -154,6 +154,19 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
+  // 未捕获异常处理 - 崩溃时记录退出码
+  process.on('uncaughtException', (error) => {
+    logger.error('未捕获异常:', error);
+    // 写入非零退出码，让父进程知道是异常退出
+    process.exit(1);
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('未处理的 Promise 拒绝:', reason);
+    // 写入非零退出码
+    process.exit(1);
+  });
+
   // 连接到服务器（不会抛出连接失败的异常，会自动重连）
   await controller.connect();
 }

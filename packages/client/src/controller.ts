@@ -196,6 +196,13 @@ export class Controller extends EventEmitter {
       return;
     }
 
+    // 检查是否已达到最大重连次数
+    if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
+      logger.error(`已达到最大重连次数 (${this.reconnectAttempts})，停止重连`);
+      this.emit('maxReconnectAttemptsReached');
+      return;
+    }
+
     const delay = this.calculateReconnectDelay();
     logger.log(`将在 ${delay}ms 后重连... (第 ${this.reconnectAttempts + 1} 次尝试)`);
 
