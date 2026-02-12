@@ -27,8 +27,18 @@ const CLIENT_DIR = join(DATA_DIR, 'client');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件路径 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
-/** 配置文件路径 */
-const CONFIG_FILE = join(CLIENT_DIR, 'boot.json');
+/** 默认配置文件路径 */
+const DEFAULT_CONFIG_FILE = join(CLIENT_DIR, 'config.json');
+
+/** 客户端配置接口 */
+interface ClientConfig {
+  /** 服务器地址 */
+  server: string;
+  /** 认证令牌 */
+  token?: string;
+  /** 代理配置（格式: remotePort:localPort[:localHost]，逗号分隔多个） */
+  proxies?: string;
+}
 
 /** 客户端信息接口 */
 interface ClientInfo {
@@ -178,6 +188,7 @@ program
 // ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
 
 const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
+serveCmd.option('-c, --config <path>', '配置文件路径');
 for (const opt of commonOptions) {
   if (opt.length === 3) {
     serveCmd.option(opt[0], opt[1], opt[2]);
@@ -186,9 +197,9 @@ for (const opt of commonOptions) {
   }
 }
 serveCmd.action(async (options) => {
-  // 优先从配置文件读取参数（开机启动时使用）
-  const configPath = CONFIG_FILE;
-  let configOpts: Record<string, any> = {};
+  // 从配置文件读取参数（开机启动时使用默认配置文件）
+  const configPath = options.config || DEFAULT_CONFIG_FILE;
+  let configOpts: ClientConfig | null = null;
   try {
     const configContent = readFileSync(configPath, 'utf-8');
     configOpts = JSON.parse(configContent);
@@ -198,9 +209,14 @@ serveCmd.action(async (options) => {
   }
 
   // 命令行参数覆盖配置文件参数
-  const serverUrl = configOpts.server || options.server;
-  const token = configOpts.token || options.token;
-  const proxiesStr = configOpts.proxies || options.proxies;
+  const serverUrl = configOpts?.server || options.server;
+  const token = configOpts?.token || options.token;
+  const proxiesStr = configOpts?.proxies || options.proxies;
+
+  if (!serverUrl) {
+    console.log(chalk.red('错误: 必须指定服务器地址（--config 或 --server）'));
+    process.exit(1);
+  }
 
   await runServe(serverUrl, token, proxiesStr);
 });
@@ -208,13 +224,7 @@ serveCmd.action(async (options) => {
 // ====== start 命令（启动）======
 
 const startCmd = program.command('start').alias('ks').description('启动客户端');
-for (const opt of commonOptions) {
-  if (opt.length === 3) {
-    startCmd.option(opt[0], opt[1], opt[2]);
-  } else {
-    startCmd.option(opt[0], opt[1]);
-  }
-}
+startCmd.option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
 startCmd.option('--no-boot', '不注册开机自启动');
 startCmd.action(async (options) => {
   // 1. 检测是否已在运行
@@ -228,43 +238,103 @@ startCmd.action(async (options) => {
     process.exit(1);
   }
 
-  // 2. 确定参数：优先从配置文件读取，回退到命令行
-  const configPath = CONFIG_FILE;
-  let configOpts: Record<string, any> = {};
-  try {
-    const configContent = readFileSync(configPath, 'utf-8');
-    configOpts = JSON.parse(configContent);
-    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
-  } catch {
-    // 配置文件不存在，使用命令行参数
+  // 2. 确定使用的配置文件路径
+  let configPath = DEFAULT_CONFIG_FILE;
+  let useCustomConfig = false;
+
+  if (options.config) {
+    // 指定了配置文件
+    configPath = options.config;
+    useCustomConfig = true;
+
+    // 检查是否同时指定了其他参数（不允许）
+    const otherArgs = process.argv.slice(2).filter(
+      arg => !arg.startsWith('--config') && !arg.startsWith('-c') && arg !== 'start' && arg !== 'ks'
+    );
+    if (otherArgs.length > 0) {
+      console.log(chalk.red('错误: 指定配置文件时不允许携带其他参数'));
+      process.exit(1);
+    }
+  } else {
+    // 未指定配置文件，检查是否有命令行参数
+    const hasServerArg = process.argv.includes('--server') || process.argv.includes('-s');
+    const hasTokenArg = process.argv.includes('--token') || process.argv.includes('-t');
+    const hasProxiesArg = process.argv.includes('--proxies') || process.argv.includes('-p');
+
+    if (!hasServerArg && !hasTokenArg && !hasProxiesArg) {
+      // 没有任何参数，尝试使用默认配置文件
+      useCustomConfig = false;
+    } else {
+      // 有命令行参数，重新生成配置文件
+      useCustomConfig = false;
+    }
   }
 
-  const serverUrl = configOpts.server || options.server;
-  const token = configOpts.token || options.token;
-  const proxies = configOpts.proxies || options.proxies;
+  // 3. 读取配置或从命令行参数获取
+  let serverUrl: string | undefined;
+  let token: string | undefined;
+  let proxies: string | undefined;
+
+  if (useCustomConfig || (!options.config && !process.argv.includes('--server') && !process.argv.includes('-s'))) {
+    // 从配置文件读取
+    try {
+      const configContent = readFileSync(configPath, 'utf-8');
+      const config: ClientConfig = JSON.parse(configContent);
+      serverUrl = config.server;
+      token = config.token;
+      proxies = config.proxies;
+      console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+    } catch {
+      console.log(chalk.red(`错误: 配置文件不存在或格式错误: ${configPath}`));
+      process.exit(1);
+    }
+  } else {
+    // 从命令行参数获取
+    const opts = startCmd.opts();
+    serverUrl = opts.server;
+    token = opts.token;
+    proxies = opts.proxies;
+
+    if (!serverUrl) {
+      console.log(chalk.red('错误: 必须指定服务器地址（--server 或使用配置文件）'));
+      process.exit(1);
+    }
+
+    // 保存到默认配置文件（用于开机启动）
+    const configToSave: ClientConfig = { server: serverUrl };
+    if (token) configToSave.token = token;
+    if (proxies) configToSave.proxies = proxies;
+    mkdirSync(CLIENT_DIR, { recursive: true });
+    writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(configToSave, null, 2));
+    console.log(chalk.gray(`配置已保存到: ${DEFAULT_CONFIG_FILE}`));
+  }
 
   if (!serverUrl) {
-    console.log(chalk.red('错误: 必须指定服务器地址（--server 或配置文件）'));
+    console.log(chalk.red('错误: 必须指定服务器地址'));
     process.exit(1);
   }
 
-  // 3. 确保数据目录存在
+  // 4. 确保数据目录存在
   mkdirSync(CLIENT_DIR, { recursive: true });
 
-  // 4. 解析路径
+  // 5. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
   const nodePath = process.execPath;
 
-  // 5. 构建 _serve 参数
+  // 6. 构建 _serve 参数（使用默认配置文件）
   const serveArgs: string[] = [];
-  serveArgs.push('--server', serverUrl);
-  if (token) serveArgs.push('--token', token);
-  if (proxies) serveArgs.push('--proxies', proxies);
+  if (useCustomConfig) {
+    serveArgs.push('--config', configPath);
+  } else {
+    serveArgs.push('--server', serverUrl);
+    if (token) serveArgs.push('--token', token);
+    if (proxies) serveArgs.push('--proxies', proxies);
+  }
 
-  // 6. 打开日志文件
+  // 7. 打开日志文件
   const logFd = openSync(LOG_FILE, 'a');
 
-  // 7. 启动后台守护进程
+  // 8. 启动后台守护进程
   const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
@@ -282,7 +352,7 @@ startCmd.action(async (options) => {
   child.unref();
   closeSync(logFd);
 
-  // 8. 等待客户端启动（通过检查管理服务器）
+  // 9. 等待客户端启动（通过检查管理服务器）
   await new Promise(resolve => setTimeout(resolve, 2000));
 
   const status = await getClientStatus();
@@ -296,7 +366,7 @@ startCmd.action(async (options) => {
   }
   console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
-  // 9. 注册开机启动
+  // 10. 注册开机启动
   if (options.boot !== false) {
     try {
       registerBoot({
