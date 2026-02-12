@@ -321,19 +321,35 @@ startCmd.action(async (options) => {
     }
   }
 
-  // 2. 确定使用的配置文件路径
+  // 2. 确定使用的配置文件路径和读取配置
   let configPath = DEFAULT_CONFIG_FILE;
   let useCustomConfig = false;
+  let serverConfig: ServerConfig | null = null;
 
   if (options.config) {
     // 指定了配置文件
     configPath = options.config;
     useCustomConfig = true;
 
-    // 检查是否同时指定了其他参数（不允许）
-    const otherArgs = process.argv.slice(2).filter(
-      arg => !arg.startsWith('--config') && !arg.startsWith('-c') && arg !== 'start'
-    );
+    // 检查是否同时指定了其他参数（不允许，但 --no-boot 和 --open 除外）
+    // 需要排除参数值（如配置文件路径）
+    const allowedFlags = ['--config', '-c', '--no-boot', '--open', '-o', 'start'];
+    const otherArgs: string[] = [];
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (allowedFlags.includes(arg)) {
+        // 如果是带值的选项，跳过下一个参数
+        if (arg === '--config' || arg === '-c') {
+          i++;
+        }
+      } else if (!arg.startsWith('-')) {
+        // 可能是前一个选项的值，已经跳过了
+        continue;
+      } else {
+        otherArgs.push(arg);
+      }
+    }
     if (otherArgs.length > 0) {
       console.log(chalk.red('错误: 指定配置文件时不允许携带其他参数'));
       process.exit(1);
@@ -342,8 +358,8 @@ startCmd.action(async (options) => {
     // 从配置文件读取
     try {
       const configContent = readFileSync(configPath, 'utf-8');
-      const config: ServerConfig = JSON.parse(configContent);
-      if (!config.port) {
+      serverConfig = JSON.parse(configContent) as ServerConfig;
+      if (!serverConfig.port) {
         console.log(chalk.red(`错误: 配置文件缺少 port 字段: ${configPath}`));
         process.exit(1);
       }
@@ -363,8 +379,8 @@ startCmd.action(async (options) => {
       // 没有任何参数，尝试使用默认配置文件
       try {
         const configContent = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
-        const config: ServerConfig = JSON.parse(configContent);
-        if (!config.port) {
+        serverConfig = JSON.parse(configContent) as ServerConfig;
+        if (!serverConfig.port) {
           console.log(chalk.red('错误: 配置文件缺少 port 字段'));
           process.exit(1);
         }
@@ -375,35 +391,41 @@ startCmd.action(async (options) => {
     }
   }
 
-  // 3. 确保数据目录存在
+  // 3. 确定最终使用的 host、port、tls 等参数
+  // 优先级：命令行参数 > 配置文件 > 默认值
+  const controlPort = parseInt((options.port || serverConfig?.port || '9000') as string, 10);
+  const host = options.host || serverConfig?.host || '0.0.0.0';
+  const tls = !!(options.tlsKey && options.tlsCert) || !!(serverConfig?.tlsKey && serverConfig?.tlsCert);
+
+  // 4. 确保数据目录存在
   mkdirSync(SERVER_DIR, { recursive: true });
 
-  // 4. 解析路径
+  // 5. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
   const nodePath = process.execPath;
 
-  // 5. 构建 _serve 参数（优先使用 --config 指向配置文件）
+  // 6. 构建 _serve 参数（优先使用 --config 指向配置文件）
   const serveArgs: string[] = [];
   const bootConfigPath = useCustomConfig ? configPath : DEFAULT_CONFIG_FILE;
   serveArgs.push('--config', bootConfigPath);
 
   // 如果使用命令行参数，保存到默认配置文件
   if (!useCustomConfig && (options.port || options.host || options.tokens || options.tlsKey || options.tlsCert)) {
-    const configToSave: ServerConfig = { port: options.port };
-    if (options.host) configToSave.host = options.host;
-    if (options.tokens) configToSave.tokens = options.tokens;
-    if (options.tlsKey) configToSave.tlsKey = options.tlsKey;
-    if (options.tlsCert) configToSave.tlsCert = options.tlsCert;
-    if (options.heartbeatInterval) configToSave.heartbeatInterval = options.heartbeatInterval;
-    if (options.sessionTimeout) configToSave.sessionTimeout = options.sessionTimeout;
+    const configToSave: ServerConfig = { port: options.port || serverConfig?.port || '9000' };
+    if (options.host || serverConfig?.host) configToSave.host = options.host || serverConfig?.host;
+    if (options.tokens || serverConfig?.tokens) configToSave.tokens = options.tokens || serverConfig?.tokens;
+    if (options.tlsKey || serverConfig?.tlsKey) configToSave.tlsKey = options.tlsKey || serverConfig?.tlsKey;
+    if (options.tlsCert || serverConfig?.tlsCert) configToSave.tlsCert = options.tlsCert || serverConfig?.tlsCert;
+    if (options.heartbeatInterval || serverConfig?.heartbeatInterval) configToSave.heartbeatInterval = options.heartbeatInterval || serverConfig?.heartbeatInterval;
+    if (options.sessionTimeout || serverConfig?.sessionTimeout) configToSave.sessionTimeout = options.sessionTimeout || serverConfig?.sessionTimeout;
     writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(configToSave, null, 2));
     console.log(chalk.gray(`配置已保存到: ${DEFAULT_CONFIG_FILE}`));
   }
 
-  // 6. 打开日志文件
+  // 7. 打开日志文件
   const logFd = openSync(LOG_FILE, 'a');
 
-  // 7. 启动后台守护进程
+  // 8. 启动后台守护进程
   const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
@@ -413,19 +435,14 @@ startCmd.action(async (options) => {
   if (child.pid !== undefined) {
     writePidFile({
       pid: child.pid,
-      host: options.host || '0.0.0.0',
-      controlPort: parseInt(options.port, 10),
-      tls: !!(options.tlsKey && options.tlsCert),
+      host,
+      controlPort,
+      tls,
     });
   }
 
   child.unref();
   closeSync(logFd);
-
-  // 8. 等待服务器启动
-  const controlPort = parseInt(options.port, 10);
-  const host = options.host || '0.0.0.0';
-  const tls = !!(options.tlsKey && options.tlsCert);
 
   const started = await waitForStartup(host, controlPort, tls, 10000);
 
@@ -522,13 +539,11 @@ program
 
     // 取消开机启动
     try {
-      if (isBootRegistered()) {
-        unregisterBoot();
-        console.log(chalk.green('已取消开机自启动'));
-      }
+      unregisterBoot();
     } catch (err) {
       console.log(chalk.yellow(`取消开机自启动失败: ${err instanceof Error ? err.message : err}`));
     }
+    console.log(chalk.green('已取消开机自启动'));
   });
 
 program.parse();

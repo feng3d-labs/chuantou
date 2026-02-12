@@ -110,7 +110,8 @@ function getStartupScriptPath(taskName: string): string {
 function registerWindows(info: StartupInfo): void {
   const taskName = info.isServer ? 'feng3d-cts' : 'feng3d-ctc';
   const serveArgs = info.args.map((a) => (a.includes(' ') ? `""${a}""` : a)).join(' ');
-  const command = `""${info.nodePath}"" ""${info.scriptPath}"" ${info.isServer ? '_serve' : 'start'} ${serveArgs}`;
+  // 服务端和客户端都使用 start 命令（后台守护进程），开机启动时不需要再次注册 --boot
+  const command = `""${info.nodePath}"" ""${info.scriptPath}"" start ${serveArgs} --no-boot`;
   const scriptContent = `Set WshShell = CreateObject("WScript.Shell")\r\nWshShell.Run "${command}", 0, False\r\n`;
   const scriptPath = getStartupScriptPath(taskName);
 
@@ -165,7 +166,8 @@ function registerLinux(info: StartupInfo): void {
   mkdirSync(serviceDir, { recursive: true });
 
   const serveArgs = info.args.map((a) => (a.includes(' ') ? `"${a}"` : a)).join(' ');
-  const command = `${info.nodePath} ${info.scriptPath} ${info.isServer ? '_serve' : 'start'} ${serveArgs}`;
+  // 服务端和客户端都使用 start 命令（后台守护进程），开机启动时不需要再次注册 --boot
+  const command = `${info.nodePath} ${info.scriptPath} start ${serveArgs}`;
   const logFile = join(DATA_DIR, info.isServer ? 'server.log' : 'client.log');
 
   const description = info.isServer
@@ -273,6 +275,8 @@ export function unregisterBoot(info?: StartupInfo): void {
 
 /**
  * 查询是否已注册开机自启动
+ *
+ * 直接检查系统中的注册状态（注册表或 systemd），不依赖 boot.json 文件。
  *
  * @param info - 启动信息（可选，如果不提供则从文件读取）
  * @returns 是否已注册

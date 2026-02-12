@@ -306,10 +306,25 @@ startCmd.action(async (options) => {
     configPath = options.config;
     useCustomConfig = true;
 
-    // 检查是否同时指定了其他参数（不允许）
-    const otherArgs = process.argv.slice(2).filter(
-      arg => !arg.startsWith('--config') && !arg.startsWith('-c') && arg !== 'start' && arg !== 'ks'
-    );
+    // 检查是否同时指定了其他参数（不允许，但 --no-boot 除外）
+    // 需要排除参数值（如配置文件路径）
+    const allowedFlags = ['--config', '-c', '--no-boot', 'start', 'ks'];
+    const otherArgs: string[] = [];
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (allowedFlags.includes(arg)) {
+        // 如果是带值的选项，跳过下一个参数
+        if (arg === '--config' || arg === '-c') {
+          i++;
+        }
+      } else if (!arg.startsWith('-')) {
+        // 可能是前一个选项的值，已经跳过了
+        continue;
+      } else {
+        otherArgs.push(arg);
+      }
+    }
     if (otherArgs.length > 0) {
       console.log(chalk.red('错误: 指定配置文件时不允许携带其他参数'));
       process.exit(1);
