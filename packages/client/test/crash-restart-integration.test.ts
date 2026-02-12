@@ -1,26 +1,51 @@
+/**
+ * CLI crash-restart 集成测试
+ * 测试守护进程的崩溃检测和自动重启功能
+ */
+
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import { readFileSync, unlinkSync, mkdirSync, writeFileSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir } from 'os';
+import { WebSocketServer } from 'ws';
 
 const CLIENT_DIR = join(homedir(), '.chuantou', 'client');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 const CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
 
+let wsServer: WebSocketServer | null = null;
+let wsPort = 0;
+
 function getRandomPort() {
   return 10000 + Math.floor(Math.random() * 1000);
 }
 
+async function startMockWsServer() {
+  return new Promise<void>((resolve) => {
+    const server = new WebSocketServer({ port: 0 }, () => {
+      wsPort = (server as any).address().port;
+      resolve();
+    });
+    wsServer = server;
+  });
+}
+
+function stopMockWsServer() {
+  if (wsServer) {
+    wsServer.close();
+    wsServer = null;
+  }
+}
+
 function createTestConfig() {
-  const port = getRandomPort();
   const config = {
-    serverUrl: `ws://localhost:${port}`,
+    serverUrl: `ws://localhost:${wsPort}`,
     token: '',
     reconnectInterval: 30000,
     maxReconnectAttempts: 10,
-    proxies: [{ remotePort: port + 1, localPort: 3000 }]
+    proxies: [{ remotePort: wsPort + 1, localPort: 3000 }]
   };
   mkdirSync(CLIENT_DIR, { recursive: true });
   writeFileSync(CONFIG_FILE, JSON.stringify(config));
@@ -92,13 +117,15 @@ function logFileExists(): boolean {
   return existsSync(LOG_FILE);
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   deletePidFile();
+  await startMockWsServer();
   createTestConfig();
   clearLogFile();
 });
 
 afterAll(async () => {
+  stopMockWsServer();
   const pidInfo = readPidFile();
   if (pidInfo?.pid) {
     stopProcess(pidInfo.pid);
@@ -109,7 +136,8 @@ afterAll(async () => {
 
 describe('CLI crash-restart integration tests', () => {
   const nodePath = process.execPath;
-  const cliPath = join(process.cwd(), 'dist', 'cli.js');
+  // 使用 __dirname 来定位测试文件所在目录，从而找到正确的 dist 路径
+  const cliPath = join(__dirname, '..', 'dist', 'cli.js');
 
   it('should start daemon and write PID file', { timeout: 15000 }, async () => {
     deletePidFile();
