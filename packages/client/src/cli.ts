@@ -19,7 +19,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { readFileSync, writeFileSync, mkdirSync, unlinkSync, existsSync, openSync, closeSync, readSync, statSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
@@ -225,9 +225,6 @@ const cliPath = fileURLToPath(import.meta.url);
 // index.js 是实际运行客户端的入口（包含管理服务器）
 const indexPath = join(dirname(cliPath), 'index.js');
 const nodePath = process.execPath;
-
-// 引入 dirname 函数
-import { dirname } from 'path';
 
 /**
  * 主程序入口
