@@ -238,12 +238,10 @@ startCmd.action(async (options) => {
 
   // 2. 确定使用的配置文件路径和读取配置
   let configPath = DEFAULT_CONFIG_FILE;
-  let useCustomConfig = false;
   let config: ClientConfig | null = null;
 
   if (options.config) {
     configPath = options.config;
-    useCustomConfig = true;
 
     // 从配置文件读取
     try {
@@ -257,24 +255,36 @@ startCmd.action(async (options) => {
       console.log(chalk.yellow('配置文件不存在或格式错误，使用命令行参数'));
     }
   } else {
-    // 检查是否有命令行参数（排除 --config 和 --no-boot 和 --open）
-    const hasPortArg = process.argv.includes('--port') || process.argv.includes('-p');
-    const hasHostArg = process.argv.includes('--host') || process.argv.includes('-a');
-    const hasTokensArg = process.argv.includes('--tokens') || process.argv.includes('-t');
-    const hasTlsKeyArg = process.argv.includes('--tls-key');
-    const hasTlsCertArg = process.argv.includes('--tls-cert');
+    // 检查是否有命令行参数（排除 --config、--no-boot、--open、--server、--token、--proxies）
+    const hasServerArg = process.argv.includes('--server');
+    const hasTokenArg = process.argv.includes('--token');
+    const hasProxiesArg = process.argv.includes('--proxies');
 
-    if (!hasPortArg && !useCustomConfig) {
-      // 没有配置文件也没有端口参数，尝试读取默认配置
+    if (hasServerArg || hasTokenArg || hasProxiesArg) {
+      // 有命令行参数，直接使用默认配置文件 + 命令行参数覆盖
+      configPath = DEFAULT_CONFIG_FILE;
       try {
-        const configContent = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+        const configContent = readFileSync(configPath, 'utf-8');
         config = JSON.parse(configContent);
-        if (!config || !config.server) {
-          console.log(chalk.red('错误: 必须指定参数（--port 或使用配置文件）'));
-          process.exit(1);
-        }
       } catch {
-        console.log(chalk.red('错误: 必须指定参数（--port 或使用配置文件）'));
+        config = null;
+      }
+    } else {
+      // 无命令行参数，使用配置文件中的所有配置
+      configPath = DEFAULT_CONFIG_FILE;
+      try {
+        const configContent = readFileSync(configPath, 'utf-8');
+        config = JSON.parse(configContent);
+      } catch {
+        config = null;
+      }
+
+      // 配置文件不存在且无命令行参数时才报错
+      if (!config || !config.server) {
+        console.log(chalk.red('错误: 配置文件不存在或缺少 server 字段'));
+        console.log(chalk.yellow('提示:'));
+        console.log(chalk.yellow('  1. 首次使用请运行: feng3d-ctc start --config <配置文件路径>'));
+        console.log(chalk.yellow('  2. 或在管理页面 http://127.0.0.1:9001 中配置'));
         process.exit(1);
       }
     }
