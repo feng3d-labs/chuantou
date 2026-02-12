@@ -226,6 +226,14 @@ serveCmd.action(async (options) => {
 const startCmd = program.command('start').alias('ks').description('启动客户端');
 startCmd.option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
 startCmd.option('--no-boot', '不注册开机自启动');
+// 添加原有的命令行选项
+for (const opt of commonOptions) {
+  if (opt.length === 3) {
+    startCmd.option(opt[0], opt[1], opt[2]);
+  } else {
+    startCmd.option(opt[0], opt[1]);
+  }
+}
 startCmd.action(async (options) => {
   // 1. 检测是否已在运行
   if (isClientRunning()) {
