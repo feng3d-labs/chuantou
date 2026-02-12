@@ -6,11 +6,11 @@
 
 ## 特性
 
-- WebSocket 控制通道
+- **每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 四种协议**
+- 三通道架构：WebSocket 控制通道 + TCP 二进制数据通道 + UDP 数据通道
 - 自动重连机制
-- **每个端口同时支持 HTTP 和 WebSocket 代理**
 - 多代理支持
-- 单实例模式：支持动态添加代理映射
+- 单实例模式：通过 IPC 机制支持动态添加代理映射
 
 ## 快速开始
 
@@ -151,15 +151,12 @@ remotePort:localPort[:localHost]
 
 **推荐**：本地地址为 localhost 时推荐省略，使用 `8080:3000` 而非 `8080:3000:localhost`。
 
-每个代理端口同时支持 HTTP 和 WebSocket 协议。
+每个代理端口同时支持 HTTP/WebSocket/TCP/UDP 协议。
 
 **示例：**
 
 ```
-# HTTP 代理
-8080:3000:localhost
-
-# WebSocket 代理（同一端口）
+# 单个代理（同时支持 HTTP/WebSocket/TCP/UDP）
 8080:3000:localhost
 
 # 完整格式
