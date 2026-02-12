@@ -217,16 +217,28 @@ for (const opt of serverOptions) {
   }
 }
 serveCmd.action(async (options) => {
-  const tls = (options.tlsKey && options.tlsCert)
-    ? { key: readFileSync(options.tlsKey, 'utf-8'), cert: readFileSync(options.tlsCert, 'utf-8') }
+  // 优先从配置文件读取参数（开机启动时使用）
+  const configPath = join(SERVER_DIR, 'boot.json');
+  let configOpts: Record<string, any> = {};
+  try {
+    const configContent = readFileSync(configPath, 'utf-8');
+    configOpts = JSON.parse(configContent);
+    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+  } catch {
+    console.log(chalk.yellow(`配置文件不存在，使用命令行参数`));
+  }
+
+  // 命令行参数覆盖配置文件参数
+  const tls = configOpts.tlsKey && configOpts.tlsCert
+    ? { key: readFileSync(configOpts.tlsKey, 'utf-8'), cert: readFileSync(configOpts.tlsCert, 'utf-8') }
     : undefined;
 
   const opts = {
-    host: options.host,
-    controlPort: parseInt(options.port, 10),
-    authTokens: options.tokens ? options.tokens.split(',') : [],
-    heartbeatInterval: parseInt(options.heartbeatInterval, 10),
-    sessionTimeout: parseInt(options.sessionTimeout, 10),
+    host: configOpts.host || options.host,
+    controlPort: parseInt(configOpts.port || options.port, 10),
+    authTokens: (configOpts.tokens || options.tokens) ? (configOpts.tokens || options.tokens)!.split(',') : [],
+    heartbeatInterval: parseInt(configOpts.heartbeatInterval || options.heartbeatInterval, 10),
+    sessionTimeout: parseInt(configOpts.sessionTimeout || options.sessionTimeout, 10),
     tls,
   };
 
