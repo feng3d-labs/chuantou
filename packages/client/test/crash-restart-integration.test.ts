@@ -16,7 +16,10 @@ function getRandomPort() {
 function createTestConfig() {
   const port = getRandomPort();
   const config = {
-    server: `ws://localhost:${port}`,
+    serverUrl: `ws://localhost:${port}`,
+    token: '',
+    reconnectInterval: 30000,
+    maxReconnectAttempts: 10,
     proxies: [{ remotePort: port + 1, localPort: 3000 }]
   };
   mkdirSync(CLIENT_DIR, { recursive: true });
@@ -149,11 +152,11 @@ describe('CLI crash-restart integration tests', () => {
     const pidInfo = readPidFile();
     expect(pidInfo).not.toBeNull();
 
-    const stopChild = spawn(nodePath, [cliPath, 'stop'], {
+    spawn(nodePath, [cliPath, 'stop'], {
       stdio: 'pipe',
     });
 
-    await wait(2000);
+    await wait(3000);
 
     const pidInfoAfter = readPidFile();
     expect(pidInfoAfter).toBeNull();

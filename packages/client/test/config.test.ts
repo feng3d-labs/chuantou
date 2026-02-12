@@ -119,8 +119,8 @@ describe('Config', () => {
 
       process.argv = ['node', 'cli.js'];
       const config = await Config.load();
-      expect(config.serverUrl).toBeTruthy();
-      expect(config.token).toBeTruthy();
+      expect(config.serverUrl).toBe('ws://localhost:9000');
+      expect(config.token).toBe('');
     });
 
     it('should override file config with command line args', async () => {
@@ -158,17 +158,6 @@ describe('Config', () => {
         proxies: [{ remotePort: 8080, localPort: 3000, localHost: 'localhost' }],
       });
       expect(() => config.validate()).toThrow('服务器地址是必需的');
-    });
-
-    it('should throw error when token is empty', () => {
-      const config = new Config({
-        serverUrl: 'ws://localhost:9000',
-        token: '',
-        reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
-        maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
-        proxies: [{ remotePort: 8080, localPort: 3000, localHost: 'localhost' }],
-      });
-      expect(() => config.validate()).toThrow('认证令牌是必需的');
     });
 
     it('should throw error when serverUrl does not start with ws:// or wss://', () => {

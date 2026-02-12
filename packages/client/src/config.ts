@@ -123,7 +123,7 @@ async function loadConfig(): Promise<ClientConfig> {
   const args = parseArgs();
   let config: ClientConfig = {
     serverUrl: 'ws://localhost:9000',
-    token: 'test-token',
+    token: '',
     reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
     maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
     proxies: [
@@ -212,9 +212,6 @@ export class Config implements ClientConfig {
   validate(): void {
     if (!this.serverUrl) {
       throw new Error('服务器地址是必需的 (--server ws://host:port 或 --config 配置文件)');
-    }
-    if (!this.token) {
-      throw new Error('认证令牌是必需的 (--token xxx 或 --config 配置文件)');
     }
     if (!this.serverUrl.startsWith('ws://') && !this.serverUrl.startsWith('wss://')) {
       throw new Error('服务器地址必须以 ws:// 或 wss:// 开头');
