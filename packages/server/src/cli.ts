@@ -273,10 +273,12 @@ startCmd.action(async (options) => {
   if (existing) {
     try {
       await httpGet(existing.host, existing.controlPort, '/_chuantou/status', existing.tls);
-      console.log(chalk.yellow('服务器已在运行中'));
+      // 服务器确实在运行，报错退出
+      console.log(chalk.red('服务器已在运行中'));
       console.log(chalk.gray(`  PID: ${existing.pid}`));
       console.log(chalk.gray(`  端口: ${existing.controlPort}`));
-      return;
+      console.log(chalk.yellow('如需重启，请先使用 stop 命令停止服务器'));
+      process.exit(1);
     } catch {
       // PID 文件残留，清理后继续
       removePidFile();
@@ -308,6 +310,16 @@ startCmd.action(async (options) => {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
+
+  // 立即写入 PID 文件（子进程启动后会覆盖），防止重复启动
+  if (child.pid !== undefined) {
+    writePidFile({
+      pid: child.pid,
+      host: options.host,
+      controlPort: parseInt(options.port, 10),
+      tls: !!(options.tlsKey && options.tlsCert),
+    });
+  }
 
   child.unref();
   closeSync(logFd);

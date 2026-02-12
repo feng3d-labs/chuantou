@@ -9,7 +9,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
@@ -26,10 +26,6 @@ const CLIENT_DIR = join(DATA_DIR, 'client');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件路径 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
-/** 添加代理请求目录 */
-const REQUEST_DIR = join(CLIENT_DIR, 'proxy-requests');
-/** 添加代理请求文件路径 */
-const ADD_PROXY_REQUEST_FILE = join(CLIENT_DIR, 'add-proxy-request.json');
 /** 客户端信息接口 */
 interface ClientInfo {
   /** 服务器地址 */
@@ -165,25 +161,12 @@ startCmd.action(async (options) => {
   if (isClientRunning()) {
     const info = readPidFile()!;
 
-    // 检查服务器地址是否一致
-    if (info.serverUrl !== serverUrl) {
-      console.log(chalk.yellow('客户端正在运行，但连接到不同的服务器'));
-      console.log(chalk.gray(`  当前: ${info.serverUrl}`));
-      console.log(chalk.gray(`  新请求: ${serverUrl}`));
-      console.log(chalk.yellow('请先停止当前客户端，或使用相同的服务器地址'));
-      process.exit(1);
-    }
-
-    // 客户端已运行，添加代理映射
-    console.log(chalk.green('客户端正在运行，添加新的代理映射...'));
-
-    for (const proxy of proxies) {
-      await addProxyToRunningClient(info.serverUrl, token, proxy);
-    }
-
-    // 打印状态
-    await printStatus(info);
-    return;
+    // 客户端已运行，报错退出
+    console.log(chalk.red('客户端已在运行中'));
+    console.log(chalk.gray(`  PID: ${info.pid}`));
+    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.yellow('如需重启，请先使用 stop 命令停止客户端'));
+    process.exit(1);
   }
 
   // 构建 _serve 参数
@@ -302,26 +285,6 @@ program
       console.log(chalk.yellow(`停止客户端失败: ${err instanceof Error ? err.message : err}`));
     }
 
-    // 清理代理请求目录
-    try {
-      const { readdirSync, unlinkSync, existsSync } = require('fs');
-      const REQUEST_DIR = require('./path').join(require('os').homedir(), '.chuantou', 'proxy-requests');
-      if (existsSync(REQUEST_DIR)) {
-        const files = readdirSync(REQUEST_DIR);
-        for (const file of files) {
-          if (file.endsWith('.json') || file.endsWith('.resp')) {
-            try {
-              unlinkSync(require('./path').join(REQUEST_DIR, file));
-            } catch {
-              // 忽略错误
-            }
-          }
-        }
-      }
-    } catch {
-      // 忽略清理错误
-    }
-
     removePidFile();
     unregisterBoot();
     console.log(chalk.green('客户端已停止'));
@@ -379,69 +342,6 @@ async function printStatus(info: ClientInfo): Promise<void> {
     console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
     console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
   }
-}
-
-/**
- * 向正在运行的客户端添加代理映射
- * 通过写入请求文件，让主客户端进程来处理注册
- */
-async function addProxyToRunningClient(serverUrl: string, token: string | undefined, proxy: ProxyConfig): Promise<void> {
-  // 检查服务器地址是否匹配
-  const info = readPidFile();
-  if (info && info.serverUrl !== serverUrl) {
-    throw new Error('服务器地址不匹配');
-  }
-
-  // 创建请求目录
-  mkdirSync(REQUEST_DIR, { recursive: true });
-
-  // 写入请求文件
-  const requestId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-  const requestFilePath = join(REQUEST_DIR, `${requestId}.json`);
-
-  const requestData = {
-    type: 'add-proxy',
-    proxy,
-    timestamp: Date.now(),
-  };
-
-  writeFileSync(requestFilePath, JSON.stringify(requestData, null, 2));
-
-  // 等待响应文件
-  const responseFilePath = join(REQUEST_DIR, `${requestId}.resp`);
-  const timeout = 10000; // 10秒超时
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < timeout) {
-    if (existsSync(responseFilePath)) {
-      const response = JSON.parse(readFileSync(responseFilePath, 'utf-8'));
-      // 清理请求和响应文件
-      try {
-        unlinkSync(requestFilePath);
-        unlinkSync(responseFilePath);
-      } catch {}
-
-      if (response.success) {
-        console.log(chalk.green(`✓ 代理已添加: :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-        return;
-      } else {
-        const errorMsg = response.error || '未知错误';
-        // 检查是否是重复代理错误
-        if (errorMsg.includes('已存在') || errorMsg.includes('already') || errorMsg.includes('duplicate')) {
-          console.log(chalk.yellow(`⚠  代理已存在: :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-          return;
-        }
-        throw new Error(errorMsg);
-      }
-    }
-    await new Promise(r => setTimeout(r, 100));
-  }
-
-  // 超时，清理请求文件
-  try {
-    unlinkSync(requestFilePath);
-  } catch {}
-  throw new Error('添加代理超时');
 }
 
 /** 管理服务器地址 */
