@@ -124,9 +124,9 @@ program
   .description(chalk.blue('穿透 - 内网穿透客户端'))
   .version('0.0.5');
 
-// ====== ks 命令（启动）======
+// ====== start 命令（启动）======
 
-const startCmd = program.command('ks').alias('start').description('启动客户端（后台运行）');
+const startCmd = program.command('start').alias('ks').description('启动客户端（后台运行）');
 for (const opt of serverOptions) {
   if (opt.length === 3) {
     startCmd.option(opt[0], opt[1], opt[2]);
@@ -175,6 +175,8 @@ startCmd.action(async (options) => {
       await addProxyToRunningClient(info.serverUrl, token, proxy);
     }
 
+    // 打印状态
+    await printStatus(info);
     return;
   }
 
@@ -227,29 +229,19 @@ startCmd.action(async (options) => {
     }
 
     // 写入 PID 文件
-    writePidFile({
-      serverUrl,
-      pid,
-      startedAt: Date.now(),
-    });
+    const clientInfo: ClientInfo = { serverUrl, pid, startedAt: Date.now() };
+    writePidFile(clientInfo);
 
     console.log(chalk.green('客户端已在后台启动'));
-    console.log(chalk.gray(`  PID: ${pid}`));
-    console.log(chalk.gray(`  服务器: ${serverUrl}`));
     console.log(chalk.gray(`  日志: ${logPath}`));
 
-    if (proxies.length > 0) {
-      console.log(chalk.gray(`  代理映射:`));
-      for (const proxy of proxies) {
-        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-      }
-    }
+    // 等待管理服务器就绪后打印状态
+    await new Promise((r) => setTimeout(r, 2000));
+    await printStatus(clientInfo);
 
     // 打开浏览器
     if (shouldOpenBrowser) {
-      setTimeout(() => {
-        openBrowser('http://127.0.0.1:9001/');
-      }, 2000);
+      openBrowser('http://127.0.0.1:9001/');
     }
   } else {
     // 前台运行模式
@@ -271,11 +263,11 @@ serveCmd.action(async (options) => {
   await runServe(options.server, options.token, options.proxies, options.reconnectInterval, options.maxReconnect);
 });
 
-// ====== tz 命令（停止）======
+// ====== stop 命令（停止）======
 
 program
-  .command('tz')
-  .alias('stop')
+  .command('stop')
+  .alias('tz')
   .description('停止客户端')
   .action(async () => {
     const info = readPidFile();
@@ -314,11 +306,11 @@ program
     console.log(chalk.green('客户端已停止'));
   });
 
-// ====== zt 命令（状态 + 代理列表）======
+// ====== status 命令（状态 + 代理列表）======
 
 program
-  .command('zt')
-  .alias('status')
+  .command('status')
+  .alias('zt')
   .description('查询客户端状态与代理列表')
   .action(async () => {
     const info = readPidFile();
@@ -326,42 +318,46 @@ program
       console.log(chalk.yellow('客户端未在运行'));
       return;
     }
-
-    console.log(chalk.blue.bold('穿透客户端状态'));
-    console.log(chalk.gray(`  PID: ${info.pid}`));
-    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
-
-    // 从管理服务器获取实时状态
-    const status = await getClientStatus();
-    if (status) {
-      const uptime = Math.floor(status.uptime / 1000);
-      const minutes = Math.floor(uptime / 60);
-      const seconds = uptime % 60;
-
-      console.log(chalk.gray(`  连接状态: ${status.authenticated ? '已认证' : status.connected ? '已连接' : '未连接'}`));
-      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
-      if (status.reconnectAttempts > 0) {
-        console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
-      }
-
-      // 代理列表
-      if (status.proxies.length === 0) {
-        console.log(chalk.gray(`  代理映射: 无`));
-      } else {
-        console.log(chalk.gray(`  代理映射: ${status.proxies.length} 个`));
-        for (const proxy of status.proxies) {
-          console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-        }
-      }
-    } else {
-      // 管理服务器不可用，回退到 PID 文件信息
-      const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
-      const minutes = Math.floor(uptime / 60);
-      const seconds = uptime % 60;
-      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
-      console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
-    }
+    await printStatus(info);
   });
+
+/**
+ * 打印客户端状态信息
+ */
+async function printStatus(info: ClientInfo): Promise<void> {
+  console.log(chalk.blue.bold('穿透客户端状态'));
+  console.log(chalk.gray(`  PID: ${info.pid}`));
+  console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+  console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
+
+  const status = await getClientStatus();
+  if (status) {
+    const uptime = Math.floor(status.uptime / 1000);
+    const minutes = Math.floor(uptime / 60);
+    const seconds = uptime % 60;
+
+    console.log(chalk.gray(`  连接状态: ${status.authenticated ? '已认证' : status.connected ? '已连接' : '未连接'}`));
+    console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+    if (status.reconnectAttempts > 0) {
+      console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
+    }
+
+    if (status.proxies.length === 0) {
+      console.log(chalk.gray(`  代理映射: 无`));
+    } else {
+      console.log(chalk.gray(`  代理映射: ${status.proxies.length} 个`));
+      for (const proxy of status.proxies) {
+        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+      }
+    }
+  } else {
+    const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
+    const minutes = Math.floor(uptime / 60);
+    const seconds = uptime % 60;
+    console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+    console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
+  }
+}
 
 /**
  * 向正在运行的客户端添加代理映射

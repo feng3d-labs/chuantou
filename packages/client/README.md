@@ -18,39 +18,39 @@
 
 ```bash
 # 启动客户端（连接本地服务器测试）
-npx @feng3d/ctc ks -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
+npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
 
 # 查询状态与代理列表
-npx @feng3d/ctc zt
+npx @feng3d/ctc status
 
 # 停止客户端
-npx @feng3d/ctc tz
+npx @feng3d/ctc stop
 ```
 
 ## 命令说明
 
-### `ks` - 启动客户端（别名：`start`）
+### `start` - 启动客户端（别名：`ks`）
 
 ```bash
-npx @feng3d/ctc ks [选项]
+npx @feng3d/ctc start [选项]
 ```
 
-**单实例模式**：只允许一个客户端实例运行。如果客户端已运行，后续的 `ks` 命令会向已运行的进程添加新的代理映射。
+**单实例模式**：只允许一个客户端实例运行。如果客户端已运行，后续的 `start` 命令会向已运行的进程添加新的代理映射。
 
 **常用示例：**
 
 ```bash
 # 指定服务器地址和认证令牌
-npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token"
 
 # 添加单个代理映射：远程8080端口代理到本地3000端口
-npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost"
 
 # 添加多个代理映射
-npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost,8081:3001,8082:8080"
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost,8081:3001,8082:8080"
 
 # 完整参数示例：指定服务器、令牌、代理和重连配置
-npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
+npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
 ```
 
 **参数说明：**
@@ -65,10 +65,10 @@ npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:loca
 | `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
 | `-o, --open` | 启动后在浏览器中打开管理页面 | - | - |
 
-### `zt` - 查询客户端状态与代理列表（别名：`status`）
+### `status` - 查询客户端状态与代理列表（别名：`zt`）
 
 ```bash
-npx @feng3d/ctc zt
+npx @feng3d/ctc status
 ```
 
 **输出示例：**
@@ -84,10 +84,10 @@ npx @feng3d/ctc zt
     :8081 -> localhost:3001
 ```
 
-### `tz` - 停止客户端（别名：`stop`）
+### `stop` - 停止客户端（别名：`tz`）
 
 ```bash
-npx @feng3d/ctc tz
+npx @feng3d/ctc stop
 ```
 
 停止客户端并清理所有代理映射。
