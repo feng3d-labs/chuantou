@@ -77,6 +77,14 @@ export class UnifiedHandler extends EventEmitter {
 
     // 监听新连接事件
     this.controller.on('newConnection', (msg: NewConnectionMessage) => {
+      logger.log(`[UnifiedHandler:${this.config.remotePort}] 收到新连接: protocol=${msg.payload.protocol}, remotePort=${msg.payload.remotePort}, connectionId=${msg.payload.connectionId}`);
+
+      // 只处理属于自己 remotePort 的连接
+      if (msg.payload.remotePort !== undefined && msg.payload.remotePort !== this.config.remotePort) {
+        logger.log(`[UnifiedHandler:${this.config.remotePort}] 忽略连接: remotePort=${msg.payload.remotePort} != myPort=${this.config.remotePort}`);
+        return;
+      }
+
       if (msg.payload.protocol === 'http') {
         this.handleHttpConnection(msg);
       } else if (msg.payload.protocol === 'websocket') {

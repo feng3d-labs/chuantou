@@ -210,6 +210,8 @@ export interface NewConnectionMessage extends Message {
     connectionId: string;
     /** 连接使用的传输协议类型 */
     protocol: Protocol;
+    /** 服务端监听的远程端口号（客户端用于路由到正确的处理器） */
+    remotePort?: number;
     /** TCP 连接的远程地址（仅 TCP 协议时存在） */
     remoteAddress?: string;
     /** HTTP 请求方法（仅 HTTP 协议时存在），如 GET、POST 等 */

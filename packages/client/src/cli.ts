@@ -153,7 +153,7 @@ startCmd.action(async (options) => {
       // 处理协议参数：格式为 remotePort:localPort:localHost:protocol
       // 或 remotePort:localPort::protocol (跳过 localHost)
       let localHost = 'localhost';
-      let protocol: 'http' | 'tcp' = 'http';
+      let protocol: 'http' | 'tcp' | undefined = undefined;
 
       if (parts.length >= 4 && parts[3]) {
         // 如果第4部分存在且非空，检查是否为协议类型
@@ -183,12 +183,16 @@ startCmd.action(async (options) => {
         }
       }
 
-      proxies.push({
+      const config: any = {
         remotePort,
         localPort,
         localHost,
-        protocol,
-      });
+      };
+      // 只有在明确指定协议时才添加 protocol 字段
+      if (protocol !== undefined) {
+        config.protocol = protocol;
+      }
+      proxies.push(config);
     }
   }
 

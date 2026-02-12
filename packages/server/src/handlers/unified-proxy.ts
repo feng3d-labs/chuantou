@@ -251,10 +251,10 @@ export class UnifiedProxyHandler {
       // 根据类型分发处理
       if (isUpgrade) {
         // WebSocket 连接 - 需要特殊处理
-        this.handleWebSocketOnRawSocket(clientId, socket, { method, url, headers });
+        this.handleWebSocketOnRawSocket(clientId, port, socket, { method, url, headers });
       } else {
         // 普通 HTTP 请求
-        this.handleHttpRequestOnRawSocket(clientId, socket, { method, url, headers, bodyChunks, bodyRemaining });
+        this.handleHttpRequestOnRawSocket(clientId, port, socket, { method, url, headers, bodyChunks, bodyRemaining });
       }
 
       return true;
@@ -284,6 +284,7 @@ export class UnifiedProxyHandler {
    */
   private async handleHttpRequestOnRawSocket(
     clientId: string,
+    port: number,
     socket: Socket,
     request: { method: string; url: string; headers: Record<string, string>; bodyChunks: Buffer[]; bodyRemaining: number }
   ): Promise<void> {
@@ -308,6 +309,7 @@ export class UnifiedProxyHandler {
       const newConnMsg: NewConnectionMessage = createMessage(MessageType.NEW_CONNECTION, {
         connectionId,
         protocol: 'http',
+        remotePort: port,
         method: request.method,
         url: request.url,
         headers: request.headers,
@@ -355,6 +357,7 @@ export class UnifiedProxyHandler {
    */
   private handleWebSocketOnRawSocket(
     clientId: string,
+    port: number,
     socket: Socket,
     request: { method: string; url: string; headers: Record<string, string> }
   ): void {
@@ -376,6 +379,7 @@ export class UnifiedProxyHandler {
     const newConnMsg: NewConnectionMessage = createMessage(MessageType.NEW_CONNECTION, {
       connectionId,
       protocol: 'websocket',
+      remotePort: port,
       url: request.url,
       wsHeaders: request.headers,
     });
@@ -645,9 +649,11 @@ export class UnifiedProxyHandler {
     const newConnMsg: NewConnectionMessage = createMessage(MessageType.NEW_CONNECTION, {
       connectionId,
       protocol: 'tcp',
+      remotePort: port,
       remoteAddress,
     });
 
+    logger.log(`[Port ${port}] 发送 TCP NEW_CONNECTION, remotePort=${port}, connectionId=${connectionId}`);
     clientSocket.send(JSON.stringify(newConnMsg));
 
     // 如果有初始数据，转发给客户端
