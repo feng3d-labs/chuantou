@@ -10,7 +10,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync, appendFileSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, closeSync, appendFileSync, openSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
@@ -32,18 +32,6 @@ const DEFAULT_CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 
 /** 管理服务器 URL */
 const ADMIN_URL = 'http://127.0.0.1:9001';
-
-/**
- * 单个代理配置接口
- */
-interface ProxyEntry {
-  /** 远程端口 */
-  remotePort: number;
-  /** 本地端口 */
-  localPort: number;
-  /** 本地主机（可选） */
-  localHost?: string;
-}
 
 /**
  * 客户端信息接口
@@ -150,7 +138,8 @@ function writeConfig(config: ClientConfig): void {
  */
 function readConfig(): ClientConfig | null {
   try {
-    return JSON.parse(readFileSync(DEFAULT_CONFIG_FILE, 'utf-8'));
+    const content = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+    return JSON.parse(content);
   } catch {
     return null;
   }
@@ -235,12 +224,8 @@ startCmd.action(async (options) => {
     try {
       const configContent = readFileSync(configPath, 'utf-8');
       config = JSON.parse(configContent);
-      if (config && !config.server) {
-        console.log(chalk.red(`错误: 配置文件缺少 server 字段`));
-        process.exit(1);
-      }
     } catch {
-      console.log(chalk.yellow('配置文件不存在或格式错误，使用命令行参数'));
+      console.log(chalk.yellow('配置文件不存在或格式错误，使用默认配置'));
     }
   } else {
     // 检查是否有命令行参数（排除 --config、--no-boot、--open、--server、--token、--proxies）
@@ -268,7 +253,7 @@ startCmd.action(async (options) => {
       }
 
       // 配置文件不存在且无命令行参数时，使用默认配置并提示
-      if (!config || !config.server) {
+      if (!config || !config.serverUrl) {
         // 使用默认配置
         config = {
           serverUrl: 'ws://localhost:9000',
@@ -285,9 +270,8 @@ startCmd.action(async (options) => {
     }
   }
 
-  // 3. 构建启动参数
-  const server = config?.serverUrlUrl || 'ws://localhost:9000';
-  const serverUrl = config?.serverUrlUrl || server;
+  // 3. 获取 serverUrl
+  const serverUrl = config?.serverUrl || 'ws://localhost:9000';
 
   // 4. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
