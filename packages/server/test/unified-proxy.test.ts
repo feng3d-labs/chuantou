@@ -130,20 +130,22 @@ describe('UnifiedProxyHandler', () => {
   describe('handleDataFromClient', () => {
     it('should forward data to user TCP socket', () => {
       const connectionId = 'tcp-conn-test';
+      const testClientId = 'test-client-id';
       const mockSocket = {
         destroyed: false,
-        write: vi.fn(),
+        write: vi.fn().mockReturnValue(true),
       };
       (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
 
       const testData = Buffer.from('test tcp data');
-      (unifiedProxy as any).handleDataFromClient(connectionId, testData);
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, testData);
 
       expect(mockSocket.write).toHaveBeenCalledWith(testData);
     });
 
     it('should not write to destroyed socket', () => {
       const connectionId = 'tcp-conn-destroyed';
+      const testClientId = 'test-client-id';
       const mockSocket = {
         destroyed: true,
         write: vi.fn(),
@@ -151,7 +153,7 @@ describe('UnifiedProxyHandler', () => {
       (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
 
       const testData = Buffer.from('data');
-      (unifiedProxy as any).handleDataFromClient(connectionId, testData);
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, testData);
 
       expect(mockSocket.write).not.toHaveBeenCalled();
     });
@@ -160,8 +162,94 @@ describe('UnifiedProxyHandler', () => {
       const testData = Buffer.from('data');
 
       expect(() => {
-        (unifiedProxy as any).handleDataFromClient('non-existent', testData);
+        (unifiedProxy as any).handleDataFromClient('test-client-id', 'non-existent', testData);
       }).not.toThrow();
+    });
+  });
+
+  describe('背压（backpressure）处理', () => {
+    it('write 返回 false 时应将连接加入 backedUpConnections', () => {
+      const connectionId = 'bp-conn-1';
+      const testClientId = 'bp-client-1';
+      const mockSocket = new EventEmitter() as any;
+      mockSocket.destroyed = false;
+      mockSocket.write = vi.fn().mockReturnValue(false);
+      mockSocket.once = vi.fn().mockImplementation((event: string, cb: Function) => {
+        EventEmitter.prototype.once.call(mockSocket, event, cb);
+      });
+
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket);
+      (unifiedProxy as any).connectionClientMap.set(connectionId, testClientId);
+
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, Buffer.from('data'));
+
+      expect((unifiedProxy as any).backedUpConnections.has(connectionId)).toBe(true);
+    });
+
+    it('write 返回 true 时不应加入 backedUpConnections', () => {
+      const connectionId = 'bp-conn-ok';
+      const testClientId = 'bp-client-ok';
+      const mockSocket = {
+        destroyed: false,
+        write: vi.fn().mockReturnValue(true),
+      };
+
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket as any);
+
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, Buffer.from('data'));
+
+      expect((unifiedProxy as any).backedUpConnections.has(connectionId)).toBe(false);
+    });
+
+    it('drain 事件后应从 backedUpConnections 移除', () => {
+      const connectionId = 'bp-drain-test';
+      const testClientId = 'bp-drain-client';
+      const mockSocket = new EventEmitter() as any;
+      mockSocket.destroyed = false;
+      mockSocket.write = vi.fn().mockReturnValue(false);
+
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket);
+      (unifiedProxy as any).connectionClientMap.set(connectionId, testClientId);
+
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, Buffer.from('data'));
+      expect((unifiedProxy as any).backedUpConnections.has(connectionId)).toBe(true);
+
+      // 触发 drain
+      mockSocket.emit('drain');
+      expect((unifiedProxy as any).backedUpConnections.has(connectionId)).toBe(false);
+    });
+
+    it('cleanupConnection 应清理背压状态和 connectionClientMap', () => {
+      const connectionId = 'bp-cleanup-test';
+      const testClientId = 'bp-cleanup-client';
+
+      (unifiedProxy as any).userSockets.set(connectionId, {} as any);
+      (unifiedProxy as any).connectionClientMap.set(connectionId, testClientId);
+      (unifiedProxy as any).backedUpConnections.add(connectionId);
+
+      (unifiedProxy as any).cleanupConnection(connectionId);
+
+      expect((unifiedProxy as any).backedUpConnections.has(connectionId)).toBe(false);
+      expect((unifiedProxy as any).connectionClientMap.has(connectionId)).toBe(false);
+      expect((unifiedProxy as any).userSockets.has(connectionId)).toBe(false);
+    });
+
+    it('同一 connectionId 多次 write false 不应重复加入背压集合', () => {
+      const connectionId = 'bp-dup-test';
+      const testClientId = 'bp-dup-client';
+      const mockSocket = new EventEmitter() as any;
+      mockSocket.destroyed = false;
+      mockSocket.write = vi.fn().mockReturnValue(false);
+
+      (unifiedProxy as any).userSockets.set(connectionId, mockSocket);
+      (unifiedProxy as any).connectionClientMap.set(connectionId, testClientId);
+
+      // 第一次
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, Buffer.from('a'));
+      // 第二次（已在 backedUp 中）
+      (unifiedProxy as any).handleDataFromClient(testClientId, connectionId, Buffer.from('b'));
+
+      expect((unifiedProxy as any).backedUpConnections.size).toBe(1);
     });
   });
 

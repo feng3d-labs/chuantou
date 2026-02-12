@@ -67,13 +67,19 @@ export class UnifiedProxyHandler {
   /** connectionId → UDP 会话 key，用于反向查找 */
   private udpConnectionToSession: Map<string, { port: number; sessionKey: string }> = new Map();
 
+  /** connectionId → clientId 映射，用于背压处理 */
+  private connectionClientMap: Map<string, string> = new Map();
+
+  /** 外部 socket 写入缓慢导致的背压连接集合 */
+  private backedUpConnections: Set<string> = new Set();
+
   constructor(sessionManager: SessionManager, dataChannelManager: DataChannelManager) {
     this.sessionManager = sessionManager;
     this.dataChannelManager = dataChannelManager;
 
     // 监听来自客户端的 TCP 数据帧
-    this.dataChannelManager.on('data', (_clientId: string, connectionId: string, data: Buffer) => {
-      this.handleDataFromClient(connectionId, data);
+    this.dataChannelManager.on('data', (clientId: string, connectionId: string, data: Buffer) => {
+      this.handleDataFromClient(clientId, connectionId, data);
     });
 
     // 监听来自客户端的 UDP 数据帧
@@ -197,6 +203,7 @@ export class UnifiedProxyHandler {
 
     // 记录连接
     this.sessionManager.addConnection(clientId, connectionId, remoteAddress, protocol);
+    this.connectionClientMap.set(connectionId, clientId);
     logger.log(`${protocol.toUpperCase()} 连接: ${remoteAddress} -> :${port} (${connectionId})`);
 
     // 通过 WebSocket 控制通道发送 NEW_CONNECTION
@@ -211,12 +218,24 @@ export class UnifiedProxyHandler {
     // 恢复 socket
     socket.resume();
 
+    // 发送数据到客户端数据通道，处理背压
+    const sendWithBackpressure = (data: Buffer) => {
+      const canContinue = this.dataChannelManager.sendToClient(clientId, connectionId, data);
+      if (!canContinue) {
+        socket.pause();
+        const dcSocket = this.dataChannelManager.getClientTcpSocket(clientId);
+        dcSocket?.once('drain', () => {
+          if (!socket.destroyed) socket.resume();
+        });
+      }
+    };
+
     // 通过数据通道发送初始数据
-    this.dataChannelManager.sendToClient(clientId, connectionId, initialData);
+    sendWithBackpressure(initialData);
 
     // 后续数据通过数据通道转发
     socket.on('data', (data: Buffer) => {
-      this.dataChannelManager.sendToClient(clientId, connectionId, data);
+      sendWithBackpressure(data);
     });
 
     socket.on('close', () => {
@@ -252,12 +271,33 @@ export class UnifiedProxyHandler {
   /**
    * 处理来自客户端的 TCP 数据（通过数据通道）
    *
-   * 写入到对应的外部 socket。
+   * 写入到对应的外部 socket，处理背压。
    */
-  private handleDataFromClient(connectionId: string, data: Buffer): void {
+  private handleDataFromClient(clientId: string, connectionId: string, data: Buffer): void {
     const socket = this.userSockets.get(connectionId);
-    if (socket && !socket.destroyed) {
-      socket.write(data);
+    if (!socket || socket.destroyed) return;
+
+    if (!socket.write(data)) {
+      if (!this.backedUpConnections.has(connectionId)) {
+        this.backedUpConnections.add(connectionId);
+        // 暂停数据通道读取，传播背压到客户端
+        this.dataChannelManager.getClientTcpSocket(clientId)?.pause();
+
+        socket.once('drain', () => {
+          this.backedUpConnections.delete(connectionId);
+          // 仅当该客户端没有其他背压连接时才恢复
+          let hasMore = false;
+          for (const id of this.backedUpConnections) {
+            if (this.connectionClientMap.get(id) === clientId) {
+              hasMore = true;
+              break;
+            }
+          }
+          if (!hasMore) {
+            this.dataChannelManager.getClientTcpSocket(clientId)?.resume();
+          }
+        });
+      }
     }
   }
 
@@ -368,6 +408,23 @@ export class UnifiedProxyHandler {
   private cleanupConnection(connectionId: string): void {
     this.userSockets.delete(connectionId);
     this.sessionManager.removeConnection(connectionId);
+
+    // 清理背压状态
+    const clientId = this.connectionClientMap.get(connectionId);
+    if (clientId && this.backedUpConnections.delete(connectionId)) {
+      // 检查是否可以恢复数据通道
+      let hasMore = false;
+      for (const id of this.backedUpConnections) {
+        if (this.connectionClientMap.get(id) === clientId) {
+          hasMore = true;
+          break;
+        }
+      }
+      if (!hasMore) {
+        this.dataChannelManager.getClientTcpSocket(clientId)?.resume();
+      }
+    }
+    this.connectionClientMap.delete(connectionId);
   }
 
   private cleanupUdpSession(sessionKey: string): void {

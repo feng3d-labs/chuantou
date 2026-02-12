@@ -43,6 +43,9 @@ export class UnifiedHandler extends EventEmitter {
   /** 已通知关闭的连接集合，防止重复发送 CONNECTION_CLOSE */
   private closedConnections: Set<string> = new Set();
 
+  /** 本地 socket 写入缓慢导致的背压连接集合 */
+  private backedUpConnections: Set<string> = new Set();
+
   constructor(controller: Controller, config: ProxyConfig) {
     super();
     this.controller = controller;
@@ -102,7 +105,14 @@ export class UnifiedHandler extends EventEmitter {
     });
 
     socket.on('data', (data: Buffer) => {
-      this.dataChannel.sendData(connectionId, data);
+      const canContinue = this.dataChannel.sendData(connectionId, data);
+      if (!canContinue) {
+        socket.pause();
+        const dcSocket = this.dataChannel.getTcpSocket();
+        dcSocket?.once('drain', () => {
+          if (!socket.destroyed) socket.resume();
+        });
+      }
     });
 
     socket.on('close', () => {
@@ -110,6 +120,7 @@ export class UnifiedHandler extends EventEmitter {
       this.notifyServerClose(connectionId);
       this.localTcpConnections.delete(connectionId);
       this.pendingDataBuffers.delete(connectionId);
+      this.backedUpConnections.delete(connectionId);
     });
 
     socket.on('error', (error: Error) => {
@@ -117,6 +128,7 @@ export class UnifiedHandler extends EventEmitter {
       this.notifyServerClose(connectionId);
       this.localTcpConnections.delete(connectionId);
       this.pendingDataBuffers.delete(connectionId);
+      this.backedUpConnections.delete(connectionId);
     });
 
     socket.connect({
@@ -141,8 +153,20 @@ export class UnifiedHandler extends EventEmitter {
           this.pendingDataBuffers.set(connectionId, buffer);
         }
         buffer.push(data);
-      } else {
-        socket.write(data);
+      } else if (!socket.write(data)) {
+        // 本地 socket 写入缓慢，暂停数据通道
+        if (!this.backedUpConnections.has(connectionId)) {
+          this.backedUpConnections.add(connectionId);
+          const dcSocket = this.dataChannel.getTcpSocket();
+          if (dcSocket) dcSocket.pause();
+
+          socket.once('drain', () => {
+            this.backedUpConnections.delete(connectionId);
+            if (this.backedUpConnections.size === 0) {
+              this.dataChannel.getTcpSocket()?.resume();
+            }
+          });
+        }
       }
       return;
     }
@@ -227,6 +251,9 @@ export class UnifiedHandler extends EventEmitter {
       socket.destroy();
       this.localTcpConnections.delete(connectionId);
       this.pendingDataBuffers.delete(connectionId);
+      if (this.backedUpConnections.delete(connectionId) && this.backedUpConnections.size === 0) {
+        this.dataChannel.getTcpSocket()?.resume();
+      }
     }
 
     // UDP 连接
@@ -259,6 +286,7 @@ export class UnifiedHandler extends EventEmitter {
 
     this.pendingDataBuffers.clear();
     this.closedConnections.clear();
+    this.backedUpConnections.clear();
     this.removeAllListeners();
   }
 }

@@ -89,13 +89,13 @@ export class Controller extends EventEmitter {
       this.ws.on('open', async () => {
         logger.log('已连接到服务器');
         this.connected = true;
-        this.reconnectAttempts = 0;
         this.emit('connected');
 
         try {
           await this.authenticate();
           await this.establishDataChannels();
           this.startHeartbeat();
+          this.reconnectAttempts = 0;
           resolve();
         } catch (error) {
           reject(error);
