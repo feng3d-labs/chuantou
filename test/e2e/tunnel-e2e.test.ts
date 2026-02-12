@@ -23,10 +23,12 @@ const PROXY_HTTP_PORT = 29080; // 代理 HTTP 端口
 const PROXY_WS_PORT = 29081;   // 代理 WebSocket 端口
 const PROXY_TCP_PORT = 29082;  // 代理 TCP 端口
 const PROXY_UDP_PORT = 29083;  // 代理 UDP 端口
+const PROXY_MULTI_PORT = 29084; // 单端口多协议代理端口
 const LOCAL_HTTP_PORT = 29100; // 本地 HTTP 服务端口
 const LOCAL_WS_PORT = 29101;   // 本地 WebSocket 服务端口
 const LOCAL_TCP_PORT = 29102;  // 本地 TCP 服务端口
 const LOCAL_UDP_PORT = 29103;  // 本地 UDP 服务端口
+const LOCAL_MULTI_PORT = 29110; // 本地多协议服务端口（HTTP+WS 共享 TCP，UDP 独立）
 
 const TOKEN = 'e2e-test-token';
 
@@ -44,6 +46,11 @@ describe('E2E 穿透功能测试', () => {
   let localWsServer: WebSocketServer;
   let localTcpServer: TcpServer;
   let localUdpServer: UdpSocket;
+
+  // ====== 单端口多协议测试服务 ======
+  let localMultiHttpServer: Server;
+  let localMultiWsServer: WebSocketServer;
+  let localMultiUdpServer: UdpSocket;
 
   beforeAll(async () => {
     // 1. 启动本地 HTTP 服务
@@ -89,12 +96,42 @@ describe('E2E 穿透功能测试', () => {
       localUdpServer.send(msg, rinfo.port, rinfo.address);
     });
 
+    // 5. 启动本地多协议服务（HTTP+WS 共享 TCP 端口，UDP 使用同一端口号）
+    localMultiHttpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
+      if (req.url === '/multi-ping') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ source: 'multi-port', protocol: 'http' }));
+      } else if (req.url === '/multi-echo') {
+        let body = '';
+        req.on('data', chunk => { body += chunk; });
+        req.on('end', () => {
+          res.writeHead(200, { 'Content-Type': 'text/plain' });
+          res.end(body);
+        });
+      } else {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.end('multi-protocol service');
+      }
+    });
+    localMultiWsServer = new WebSocketServer({ server: localMultiHttpServer });
+    localMultiWsServer.on('connection', (ws) => {
+      ws.on('message', (data) => {
+        ws.send(`multi-echo: ${data.toString()}`);
+      });
+    });
+    localMultiUdpServer = createUdpSocket('udp4');
+    localMultiUdpServer.on('message', (msg, rinfo) => {
+      localMultiUdpServer.send(msg, rinfo.port, rinfo.address);
+    });
+
     // 并行启动本地服务
     await Promise.all([
       new Promise<void>(resolve => localHttpServer.listen(LOCAL_HTTP_PORT, resolve)),
       new Promise<void>(resolve => localWsHttpServer.listen(LOCAL_WS_PORT, resolve)),
       new Promise<void>(resolve => localTcpServer.listen(LOCAL_TCP_PORT, resolve)),
       new Promise<void>(resolve => localUdpServer.bind(LOCAL_UDP_PORT, resolve)),
+      new Promise<void>(resolve => localMultiHttpServer.listen(LOCAL_MULTI_PORT, resolve)),
+      new Promise<void>(resolve => localMultiUdpServer.bind(LOCAL_MULTI_PORT, resolve)),
     ]);
 
     // 5. 启动穿透服务端
@@ -129,6 +166,7 @@ describe('E2E 穿透功能测试', () => {
     await proxyManager.registerProxy({ remotePort: PROXY_WS_PORT, localPort: LOCAL_WS_PORT, localHost: 'localhost' });
     await proxyManager.registerProxy({ remotePort: PROXY_TCP_PORT, localPort: LOCAL_TCP_PORT, localHost: 'localhost' });
     await proxyManager.registerProxy({ remotePort: PROXY_UDP_PORT, localPort: LOCAL_UDP_PORT, localHost: 'localhost' });
+    await proxyManager.registerProxy({ remotePort: PROXY_MULTI_PORT, localPort: LOCAL_MULTI_PORT, localHost: 'localhost' });
 
     // 等待代理端口就绪
     await sleep(200);
@@ -144,6 +182,8 @@ describe('E2E 穿透功能测试', () => {
     localWsHttpServer?.close();
     localTcpServer?.close();
     localUdpServer?.close();
+    localMultiHttpServer?.close();
+    localMultiUdpServer?.close();
     await sleep(100);
   }, 10000);
 
@@ -521,6 +561,128 @@ describe('E2E 穿透功能测试', () => {
     });
   });
 
+  // ====== 单端口多协议穿透测试 ======
+
+  describe('单端口多协议穿透', () => {
+    it('应该能通过同一代理端口发送 HTTP 请求', async () => {
+      const response = await fetch(`http://127.0.0.1:${PROXY_MULTI_PORT}/multi-ping`);
+      expect(response.status).toBe(200);
+
+      const data = await response.json();
+      expect(data.source).toBe('multi-port');
+      expect(data.protocol).toBe('http');
+    });
+
+    it('应该能通过同一代理端口发送 HTTP POST 回显', async () => {
+      const body = 'multi-port echo test';
+      const response = await fetch(`http://127.0.0.1:${PROXY_MULTI_PORT}/multi-echo`, {
+        method: 'POST',
+        body,
+      });
+      expect(response.status).toBe(200);
+
+      const text = await response.text();
+      expect(text).toBe(body);
+    });
+
+    it('应该能通过同一代理端口建立 WebSocket 连接', async () => {
+      const ws = new WebSocket(`ws://127.0.0.1:${PROXY_MULTI_PORT}`);
+
+      await new Promise<void>((resolve, reject) => {
+        ws.on('open', resolve);
+        ws.on('error', reject);
+      });
+
+      const received = new Promise<string>((resolve) => {
+        ws.on('message', (data) => resolve(data.toString()));
+      });
+
+      ws.send('multi-port ws test');
+
+      const reply = await received;
+      expect(reply).toBe('multi-echo: multi-port ws test');
+
+      ws.close();
+    });
+
+    it('应该能通过同一代理端口发送 UDP 数据', async () => {
+      const result = await new Promise<string>((resolve, reject) => {
+        const client = createUdpSocket('udp4');
+        const timeout = setTimeout(() => {
+          client.close();
+          reject(new Error('单端口 UDP 回显超时'));
+        }, 5000);
+
+        client.on('message', (msg) => {
+          clearTimeout(timeout);
+          resolve(msg.toString());
+          client.close();
+        });
+
+        client.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+
+        client.send('multi-port udp test', PROXY_MULTI_PORT, '127.0.0.1');
+      });
+
+      expect(result).toBe('multi-port udp test');
+    });
+
+    it('应该能在同一代理端口上并发混合使用 HTTP、WebSocket 和 UDP', async () => {
+      // 并发发起 HTTP、WebSocket、UDP 请求
+      const httpPromise = fetch(`http://127.0.0.1:${PROXY_MULTI_PORT}/multi-echo`, {
+        method: 'POST',
+        body: 'concurrent-http',
+      }).then(r => r.text());
+
+      const wsPromise = new Promise<string>((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${PROXY_MULTI_PORT}`);
+        ws.on('open', () => {
+          const received = new Promise<string>((res) => {
+            ws.on('message', (data) => res(data.toString()));
+          });
+          ws.send('concurrent-ws');
+          received.then((reply) => {
+            ws.close();
+            resolve(reply);
+          });
+        });
+        ws.on('error', reject);
+      });
+
+      const udpPromise = new Promise<string>((resolve, reject) => {
+        const client = createUdpSocket('udp4');
+        const timeout = setTimeout(() => {
+          client.close();
+          reject(new Error('并发 UDP 超时'));
+        }, 5000);
+
+        client.on('message', (msg) => {
+          clearTimeout(timeout);
+          resolve(msg.toString());
+          client.close();
+        });
+
+        client.on('error', (err) => {
+          clearTimeout(timeout);
+          reject(err);
+        });
+
+        client.send('concurrent-udp', PROXY_MULTI_PORT, '127.0.0.1');
+      });
+
+      const [httpResult, wsResult, udpResult] = await Promise.all([
+        httpPromise, wsPromise, udpPromise,
+      ]);
+
+      expect(httpResult).toBe('concurrent-http');
+      expect(wsResult).toBe('multi-echo: concurrent-ws');
+      expect(udpResult).toBe('concurrent-udp');
+    });
+  });
+
   // ====== 服务端状态验证 ======
 
   describe('服务端状态', () => {
@@ -532,7 +694,7 @@ describe('E2E 穿透功能测试', () => {
       expect(status.running).toBe(true);
       expect(status.controlPort).toBe(CONTROL_PORT);
       expect(status.authenticatedClients).toBeGreaterThanOrEqual(1);
-      expect(status.totalPorts).toBeGreaterThanOrEqual(4);
+      expect(status.totalPorts).toBeGreaterThanOrEqual(5);
     });
 
     it('应该能查询服务端会话列表', async () => {
