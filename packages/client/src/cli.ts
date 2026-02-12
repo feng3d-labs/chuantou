@@ -175,6 +175,36 @@ program
   .description(chalk.blue('穿透 - 内网穿透客户端'))
   .version('0.0.5');
 
+// ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
+
+const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
+for (const opt of commonOptions) {
+  if (opt.length === 3) {
+    serveCmd.option(opt[0], opt[1], opt[2]);
+  } else {
+    serveCmd.option(opt[0], opt[1]);
+  }
+}
+serveCmd.action(async (options) => {
+  // 优先从配置文件读取参数（开机启动时使用）
+  const configPath = CONFIG_FILE;
+  let configOpts: Record<string, any> = {};
+  try {
+    const configContent = readFileSync(configPath, 'utf-8');
+    configOpts = JSON.parse(configContent);
+    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+  } catch {
+    console.log(chalk.yellow(`配置文件不存在，使用命令行参数`));
+  }
+
+  // 命令行参数覆盖配置文件参数
+  const serverUrl = configOpts.server || options.server;
+  const token = configOpts.token || options.token;
+  const proxiesStr = configOpts.proxies || options.proxies;
+
+  await runServe(serverUrl, token, proxiesStr);
+});
+
 // ====== start 命令（启动）======
 
 const startCmd = program.command('start').alias('ks').description('启动客户端');
@@ -185,6 +215,102 @@ for (const opt of commonOptions) {
     startCmd.option(opt[0], opt[1]);
   }
 }
+startCmd.option('--no-boot', '不注册开机自启动');
+startCmd.action(async (options) => {
+  // 1. 检测是否已在运行
+  if (isClientRunning()) {
+    const info = readPidFile();
+    console.log(chalk.red('客户端已在运行中'));
+    if (info) {
+      console.log(chalk.gray(`  PID: ${info.pid}`));
+      console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    }
+    process.exit(1);
+  }
+
+  // 2. 确定参数：优先从配置文件读取，回退到命令行
+  const configPath = CONFIG_FILE;
+  let configOpts: Record<string, any> = {};
+  try {
+    const configContent = readFileSync(configPath, 'utf-8');
+    configOpts = JSON.parse(configContent);
+    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+  } catch {
+    // 配置文件不存在，使用命令行参数
+  }
+
+  const serverUrl = configOpts.server || options.server;
+  const token = configOpts.token || options.token;
+  const proxies = configOpts.proxies || options.proxies;
+
+  if (!serverUrl) {
+    console.log(chalk.red('错误: 必须指定服务器地址（--server 或配置文件）'));
+    process.exit(1);
+  }
+
+  // 3. 确保数据目录存在
+  mkdirSync(CLIENT_DIR, { recursive: true });
+
+  // 4. 解析路径
+  const scriptPath = fileURLToPath(import.meta.url);
+  const nodePath = process.execPath;
+
+  // 5. 构建 _serve 参数
+  const serveArgs: string[] = [];
+  serveArgs.push('--server', serverUrl);
+  if (token) serveArgs.push('--token', token);
+  if (proxies) serveArgs.push('--proxies', proxies);
+
+  // 6. 打开日志文件
+  const logFd = openSync(LOG_FILE, 'a');
+
+  // 7. 启动后台守护进程
+  const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
+    detached: true,
+    stdio: ['ignore', logFd, logFd],
+  });
+
+  // 立即写入 PID 文件，防止重复启动
+  if (child.pid !== undefined) {
+    writePidFile({
+      pid: child.pid,
+      serverUrl,
+      startedAt: Date.now(),
+    });
+  }
+
+  child.unref();
+  closeSync(logFd);
+
+  // 8. 等待客户端启动（通过检查管理服务器）
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  const status = await getClientStatus();
+  if (!status) {
+    console.log(chalk.yellow('客户端已启动，但管理服务器未就绪'));
+  } else {
+    console.log(chalk.green('客户端已在后台启动'));
+    console.log(chalk.gray(`  PID: ${child.pid}`));
+    console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
+  }
+  console.log(chalk.gray(`  日志: ${LOG_FILE}`));
+
+  // 9. 注册开机启动
+  if (options.boot !== false) {
+    try {
+      registerBoot({
+        isServer: false,
+        nodePath,
+        scriptPath,
+        args: serveArgs,
+      });
+      console.log(chalk.green('已注册开机自启动'));
+    } catch (err) {
+      console.log(chalk.yellow(`注册开机自启动失败: ${err instanceof Error ? err.message : err}`));
+    }
+  }
+});
 
 // ====== stop 命令（停止）======
 
@@ -251,8 +377,7 @@ program
           console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
         }
       }
-    }
-  } else {
+    } else {
       const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
       const minutes = Math.floor(uptime / 60);
       const seconds = uptime % 60;
@@ -260,3 +385,5 @@ program
       console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
     }
   });
+
+program.parse();
