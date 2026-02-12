@@ -141,8 +141,11 @@ function unregisterWindows(info: StartupInfo): void {
   }
 }
 
-function isRegisteredWindows(info: StartupInfo): boolean {
-  const taskName = info.isServer ? 'feng3d-cts' : 'feng3d-ctc';
+function isRegisteredWindows(info: StartupInfo | undefined): boolean {
+  const startupInfo = info ?? loadStartupInfo();
+  if (!startupInfo) return false;
+
+  const taskName = startupInfo.isServer ? 'feng3d-cts' : 'feng3d-ctc';
   try {
     execSync(
       `reg query "${WIN_REG_KEY}" /v "${taskName}"`,
@@ -220,8 +223,11 @@ function unregisterLinux(info: StartupInfo): void {
   }
 }
 
-function isRegisteredLinux(info: StartupInfo): boolean {
-  const taskName = info.isServer ? 'feng3d-cts' : 'feng3d-ctc';
+function isRegisteredLinux(info: StartupInfo | undefined): boolean {
+  const startupInfo = info ?? loadStartupInfo();
+  if (!startupInfo) return false;
+
+  const taskName = startupInfo.isServer ? 'feng3d-cts' : 'feng3d-ctc';
   try {
     const result = execSync(`systemctl --user is-enabled ${taskName}.service`, {
       encoding: 'utf-8',
@@ -278,15 +284,12 @@ export function unregisterBoot(info?: StartupInfo): void {
  *
  * 直接检查系统中的注册状态（注册表或 systemd），不依赖 boot.json 文件。
  *
- * @param info - 启动信息（可选，如果不提供则从文件读取）
+ * @param info - 启动信息（可选，如果不提供则不读取 boot.json）
  * @returns 是否已注册
  */
 export function isBootRegistered(info?: StartupInfo): boolean {
-  const startupInfo = info ?? loadStartupInfo();
-  if (!startupInfo) return false;
-
   const os = platform();
-  if (os === 'win32') return isRegisteredWindows(startupInfo);
-  if (os === 'linux') return isRegisteredLinux(startupInfo);
+  if (os === 'win32') return isRegisteredWindows(info);
+  if (os === 'linux') return isRegisteredLinux(info);
   return false;
 }

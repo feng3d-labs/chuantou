@@ -3,7 +3,7 @@
 /**
  * @module cli
  * @description 穿透客户端命令行工具模块。
- * 提供 `feng3d-ctc` CLI 命令，支持启动、停止和查询客户端状态。
+ * 提供 `feng3d-ctc` CLI 命令，支持启动、停止、查询状态、添加和移除代理映射。
  * 单实例模式：只允许一个客户端实例运行。
  * 支持从配置文件读取启动参数（开机启动时使用）
  */
@@ -30,7 +30,12 @@ const LOG_FILE = join(CLIENT_DIR, 'client.log');
 /** 默认配置文件路径 */
 const DEFAULT_CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 
-/** 单个代理配置接口 */
+/** 管理服务器 URL */
+const ADMIN_URL = 'http://127.0.0.1:9001';
+
+/**
+ * 单个代理配置接口
+ */
 interface ProxyEntry {
   /** 远程端口 */
   remotePort: number;
@@ -40,7 +45,9 @@ interface ProxyEntry {
   localHost?: string;
 }
 
-/** 客户端配置接口 */
+/**
+ * 客户端配置接口
+ */
 interface ClientConfig {
   /** 服务器地址 */
   server: string;
@@ -50,7 +57,9 @@ interface ClientConfig {
   proxies?: ProxyEntry[];
 }
 
-/** 客户端信息接口 */
+/**
+ * 客户端信息接口
+ */
 interface ClientInfo {
   /** 服务器地址 */
   serverUrl: string;
@@ -100,38 +109,14 @@ function isClientRunning(): boolean {
     process.kill(info.pid, 0);
     return true;
   } catch {
-    // 进程不存在，清理 PID 文件
-    removePidFile();
     return false;
   }
 }
 
 /**
- * 在浏览器中打开 URL
+ * 获取客户端状态
  */
-function openBrowser(url: string): void {
-  const os = platform();
-  try {
-    if (os === 'win32') {
-      execSync(`cmd.exe /c start "" "${url}"`, { stdio: 'ignore' });
-    } else if (os === 'darwin') {
-      execSync(`open "${url}"`, { stdio: 'ignore' });
-    } else {
-      // Linux
-      execSync(`xdg-open "${url}"`, { stdio: 'ignore' });
-    }
-  } catch {
-    // 忽略错误，浏览器打开失败不影响服务
-  }
-}
-
-/** 管理服务器地址 */
-const ADMIN_URL = 'http://127.0.0.1:9001';
-
-/**
- * 从管理服务器获取客户端状态
- */
-async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts: number } | null> {
+async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
   return new Promise((resolve) => {
     const req = httpGet(`${ADMIN_URL}/_ctc/status`, { timeout: 3000 }, (res) => {
       let body = '';
@@ -146,75 +131,40 @@ async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: b
     });
 
     req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.setTimeout(3000, () => resolve(null));
   });
 }
 
 /**
- * 将代理数组转换为命令行参数字符串
+ * 获取下一个代理编号（用于 CLI 命令行）
  */
-function proxiesToString(proxies: ProxyEntry[] | undefined): string | undefined {
-  if (!proxies || proxies.length === 0) return undefined;
-  return proxies.map(p =>
-    p.localHost ? `${p.remotePort}:${p.localPort}:${p.localHost}` : `${p.remotePort}:${p.localPort}`
-  ).join(',');
+let nextProxyIndex = 1;
+
+/**
+ * 获取下一个代理编号
+ */
+function getProxyIndex(): number {
+  return nextProxyIndex++;
 }
 
 /**
- * 解析代理字符串为代理列表
+ * 写入客户端配置文件
  */
-function parseProxiesString(proxiesStr: string): ProxyEntry[] {
-  return proxiesStr.split(',').map(part => {
-    const segments = part.split(':');
-    const entry: ProxyEntry = {
-      remotePort: parseInt(segments[0], 10),
-      localPort: parseInt(segments[1], 10),
-    };
-    if (segments.length > 2) {
-      entry.localHost = segments[2];
-    }
-    return entry;
-  });
+function writeConfig(config: ClientConfig): void {
+  mkdirSync(CLIENT_DIR, { recursive: true });
+  writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(config, null, 2));
 }
 
 /**
- * 运行客户端（前台模式）
+ * 读取客户端配置文件
  */
-async function runServe(
-  serverUrl: string,
-  token: string | undefined,
-  proxies: ProxyEntry[] | undefined,
-  shouldOpenBrowser?: boolean,
-): Promise<void> {
-  // 设置 process.argv 供 Config.load 读取
-  const proxiesStr = proxiesToString(proxies);
-  process.argv = [
-    process.argv[0],
-    process.argv[1],
-    '--server', serverUrl,
-    ...(token ? ['--token', token] : []),
-    ...(proxiesStr ? ['--proxies', proxiesStr] : []),
-  ];
-
-  // 动态导入 index 模块运行
-  const { run } = await import('./index.js');
-
-  // 如果需要打开浏览器，延迟打开
-  if (shouldOpenBrowser) {
-    setTimeout(() => {
-      openBrowser('http://127.0.0.1:9001/');
-    }, 3000);
+function readConfig(): ClientConfig | null {
+  try {
+    return JSON.parse(readFileSync(DEFAULT_CONFIG_FILE, 'utf-8'));
+  } catch {
+    return null;
   }
-
-  await run();
 }
-
-/** 通用选项（服务端与客户端共用）*/
-const commonOptions = [
-  ['-s, --server <url>', '服务器地址'],
-  ['-t, --token <token>', '认证令牌'],
-  ['-p, --proxies <proxies>', '代理配置（格式: remotePort:localPort[:localHost]，逗号分隔多个）'],
-];
 
 const program = new Command();
 
@@ -223,191 +173,100 @@ program
   .description(chalk.blue('穿透 - 内网穿透客户端'))
   .version('0.0.5');
 
-// ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
+// ====== start 命令（后台守护进程 + 开机启动）======
 
-const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
-serveCmd.option('-c, --config <path>', '配置文件路径');
-for (const opt of commonOptions) {
-  if (opt.length === 3) {
-    serveCmd.option(opt[0], opt[1], opt[2]);
-  } else {
-    serveCmd.option(opt[0], opt[1]);
-  }
-}
-serveCmd.action(async (options) => {
-  // 从配置文件读取参数（开机启动时使用默认配置文件）
-  const configPath = options.config || DEFAULT_CONFIG_FILE;
-  let configOpts: ClientConfig | null = null;
-  try {
-    const configContent = readFileSync(configPath, 'utf-8');
-    configOpts = JSON.parse(configContent);
-    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
-  } catch {
-    console.log(chalk.yellow(`配置文件不存在，使用命令行参数`));
-  }
+const serverOptions = [
+  ['-p, --port <port>', '控制端口', '9000'],
+  ['-a, --host <address>', '监听地址', '0.0.0.0'],
+  ['-t, --tokens <tokens>', '认证令牌（逗号分隔）'],
+  ['--tls-key <path>', 'TLS 私钥文件路径'],
+  ['--tls-cert <path>', 'TLS 证书文件路径'],
+  ['--heartbeat-interval <ms>', '心跳间隔（毫秒）', '30000'],
+  ['--session-timeout <ms>', '会话超时（毫秒）', '60000'],
+] as const;
 
-  // 命令行参数覆盖配置文件参数
-  const serverUrl = configOpts?.server || options.server;
-  const token = configOpts?.token || options.token;
-  let proxyList: ProxyEntry[] | undefined;
-  if (typeof configOpts?.proxies === 'string') {
-    // 配置文件中的 proxies 是字符串格式，需要解析
-    proxyList = parseProxiesString(configOpts.proxies);
-  } else if (configOpts?.proxies) {
-    // 配置文件中的 proxies 已经是数组格式
-    proxyList = configOpts.proxies;
-  } else if (typeof options.proxies === 'string') {
-    // 命令行参数中的 proxies 是字符串格式，需要解析
-    proxyList = parseProxiesString(options.proxies);
-  } else {
-    // 命令行参数中的 proxies 可能已经是数组格式（但实际不应该是）
-    proxyList = options.proxies;
-  }
+const startCmd = program.command('start')
+  .description('启动客户端（后台运行并注册开机自启动）')
+  .option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
 
-  if (!serverUrl) {
-    console.log(chalk.red('错误: 必须指定服务器地址（--config 或 --server）'));
-    process.exit(1);
-  }
-
-  await runServe(serverUrl, token, proxyList);
-});
-
-// ====== start 命令（启动）======
-
-const startCmd = program.command('start').alias('ks').description('启动客户端');
-startCmd.option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
-startCmd.option('--no-boot', '不注册开机自启动');
-// 添加原有的命令行选项
-for (const opt of commonOptions) {
+for (const opt of serverOptions) {
   if (opt.length === 3) {
     startCmd.option(opt[0], opt[1], opt[2]);
   } else {
     startCmd.option(opt[0], opt[1]);
   }
 }
+startCmd.option('--no-boot', '不注册开机自启动');
+startCmd.option('-o, --open', '启动后在浏览器中打开状态页面');
+
 startCmd.action(async (options) => {
   // 1. 检测是否已在运行
   if (isClientRunning()) {
-    const info = readPidFile();
     console.log(chalk.red('客户端已在运行中'));
-    if (info) {
-      console.log(chalk.gray(`  PID: ${info.pid}`));
-      console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
-    }
+    console.log(chalk.gray(`  PID: ${readPidFile()!.pid}`));
+    console.log(chalk.yellow('如需重启，请先使用 stop 命令停止'));
     process.exit(1);
   }
 
-  // 2. 确定使用的配置文件路径
+  // 2. 确定使用的配置文件路径和读取配置
   let configPath = DEFAULT_CONFIG_FILE;
   let useCustomConfig = false;
+  let config: ClientConfig | null = null;
 
   if (options.config) {
-    // 指定了配置文件
     configPath = options.config;
     useCustomConfig = true;
 
-    // 检查是否同时指定了其他参数（不允许，但 --no-boot 除外）
-    // 需要排除参数值（如配置文件路径）
-    const allowedFlags = ['--config', '-c', '--no-boot', 'start', 'ks'];
-    const otherArgs: string[] = [];
-    const args = process.argv.slice(2);
-    for (let i = 0; i < args.length; i++) {
-      const arg = args[i];
-      if (allowedFlags.includes(arg)) {
-        // 如果是带值的选项，跳过下一个参数
-        if (arg === '--config' || arg === '-c') {
-          i++;
-        }
-      } else if (!arg.startsWith('-')) {
-        // 可能是前一个选项的值，已经跳过了
-        continue;
-      } else {
-        otherArgs.push(arg);
-      }
-    }
-    if (otherArgs.length > 0) {
-      console.log(chalk.red('错误: 指定配置文件时不允许携带其他参数'));
-      process.exit(1);
-    }
-  } else {
-    // 未指定配置文件，检查是否有命令行参数
-    const hasServerArg = process.argv.includes('--server') || process.argv.includes('-s');
-    const hasTokenArg = process.argv.includes('--token') || process.argv.includes('-t');
-    const hasProxiesArg = process.argv.includes('--proxies') || process.argv.includes('-p');
-
-    if (!hasServerArg && !hasTokenArg && !hasProxiesArg) {
-      // 没有任何参数，尝试使用默认配置文件
-      useCustomConfig = false;
-    } else {
-      // 有命令行参数，重新生成配置文件
-      useCustomConfig = false;
-    }
-  }
-
-  // 3. 读取配置或从命令行参数获取
-  let serverUrl: string | undefined;
-  let token: string | undefined;
-  let proxyList: ProxyEntry[] | undefined;
-
-  if (useCustomConfig || (!options.config && !process.argv.includes('--server') && !process.argv.includes('-s'))) {
     // 从配置文件读取
     try {
       const configContent = readFileSync(configPath, 'utf-8');
-      const config: ClientConfig = JSON.parse(configContent);
-      serverUrl = config.server;
-      token = config.token;
-      proxyList = config.proxies;
-      console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+      config = JSON.parse(configContent);
+      if (config && !config.server) {
+        console.log(chalk.red(`错误: 配置文件缺少 server 字段`));
+        process.exit(1);
+      }
     } catch {
-      console.log(chalk.red(`错误: 配置文件不存在或格式错误: ${configPath}`));
-      process.exit(1);
+      console.log(chalk.yellow('配置文件不存在或格式错误，使用命令行参数'));
     }
   } else {
-    // 从命令行参数获取
-    const opts = startCmd.opts();
-    serverUrl = opts.server;
-    token = opts.token;
-    // 解析代理字符串为代理列表
-    if (opts.proxies) {
-      proxyList = parseProxiesString(opts.proxies);
-    }
+    // 检查是否有命令行参数（排除 --config 和 --no-boot 和 --open）
+    const hasPortArg = process.argv.includes('--port') || process.argv.includes('-p');
+    const hasHostArg = process.argv.includes('--host') || process.argv.includes('-a');
+    const hasTokensArg = process.argv.includes('--tokens') || process.argv.includes('-t');
+    const hasTlsKeyArg = process.argv.includes('--tls-key');
+    const hasTlsCertArg = process.argv.includes('--tls-cert');
 
-    if (!serverUrl) {
-      console.log(chalk.red('错误: 必须指定服务器地址（--server 或使用配置文件）'));
-      process.exit(1);
+    if (!hasPortArg && !useCustomConfig) {
+      // 没有配置文件也没有端口参数，尝试读取默认配置
+      try {
+        const configContent = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+        config = JSON.parse(configContent);
+        if (!config || !config.server) {
+          console.log(chalk.red('错误: 必须指定参数（--port 或使用配置文件）'));
+          process.exit(1);
+        }
+      } catch {
+        console.log(chalk.red('错误: 必须指定参数（--port 或使用配置文件）'));
+        process.exit(1);
+      }
     }
-
-    // 保存到默认配置文件（用于开机启动）
-    const configToSave: ClientConfig = { server: serverUrl };
-    if (token) configToSave.token = token;
-    if (proxyList) configToSave.proxies = proxyList;
-    mkdirSync(CLIENT_DIR, { recursive: true });
-    writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(configToSave, null, 2));
-    console.log(chalk.gray(`配置已保存到: ${DEFAULT_CONFIG_FILE}`));
   }
 
-  if (!serverUrl) {
-    console.log(chalk.red('错误: 必须指定服务器地址'));
-    process.exit(1);
-  }
+  // 3. 构建启动参数
+  const server = config?.server || 'ws://localhost:9000';
+  const serverUrl = config?.server || server;
 
-  // 4. 确保数据目录存在
-  mkdirSync(CLIENT_DIR, { recursive: true });
-
-  // 5. 解析路径
+  // 4. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
   const nodePath = process.execPath;
 
-  // 6. 构建 _serve 参数（优先使用 --config 指向配置文件）
-  const serveArgs: string[] = [];
-  // 始终使用 --config 参数，这样 boot.json 中保存的是配置文件路径而非展开的参数
-  const bootConfigPath = useCustomConfig ? configPath : DEFAULT_CONFIG_FILE;
-  serveArgs.push('--config', bootConfigPath);
+  // 5. 构建 _serve 参数（始终使用 --config 指向配置文件）
+  const serveArgs = ['--config', configPath];
 
-  // 7. 打开日志文件
+  // 6. 打开日志文件
   const logFd = openSync(LOG_FILE, 'a');
 
-  // 8. 启动后台守护进程
+  // 7. 启动后台守护进程
   const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
@@ -425,21 +284,30 @@ startCmd.action(async (options) => {
   child.unref();
   closeSync(logFd);
 
-  // 9. 等待客户端启动（通过检查管理服务器）
-  await new Promise(resolve => setTimeout(resolve, 2000));
+  // 8. 等待客户端启动（通过检查管理服务器）
+  let status: Awaited<ReturnType<typeof getClientStatus>> = null;
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    status = await getClientStatus();
+    if (status) break;
+  }
 
-  const status = await getClientStatus();
   if (!status) {
     console.log(chalk.yellow('客户端已启动，但管理服务器未就绪'));
+    console.log(chalk.gray('  可能的原因:'));
+    console.log(chalk.gray('    - 服务端未启动或无法连接'));
+    console.log(chalk.gray('    - 管理服务器端口 9001 被占用'));
+    console.log(chalk.gray(`  请查看日志: ${LOG_FILE}`));
   } else {
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  PID: ${child.pid}`));
-    console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`   服务器: ${serverUrl}`));
     console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
   }
+
   console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
-  // 10. 注册开机启动
+  // 9. 注册开机启动
   if (options.boot !== false) {
     try {
       registerBoot({
@@ -494,7 +362,7 @@ program
 
     console.log(chalk.blue.bold('穿透客户端状态'));
     console.log(chalk.gray(`  PID: ${info.pid}`));
-    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`   服务器: ${info.serverUrl}`));
     console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
     console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 
@@ -508,24 +376,136 @@ program
       if (uptime > 0) {
         console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
       }
-      if (status.reconnectAttempts > 0) {
+      if (status.reconnectAttempts && status.reconnectAttempts > 0) {
         console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
       }
 
       if (status.proxies.length === 0) {
         console.log(chalk.gray(`  代理映射: 无`));
       } else {
-        console.log(chalk.gray(`  代理映射: ${status.proxies.length} 个`));
+        console.log(chalk.gray(`   代理映射: ${status.proxies.length} 个`));
         for (const proxy of status.proxies) {
-          console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+          const index = (proxy as any).index ? `#${(proxy as any).index}` : ' -';
+          console.log(chalk.gray(`    ${index} :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
         }
       }
-    } else {
-      const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
-      const minutes = Math.floor(uptime / 60);
-      const seconds = uptime % 60;
-      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
-      console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
+    }
+  });
+
+// ====== add-proxy 命令（添加代理）======
+
+program
+  .command('add-proxy')
+  .description('添加代理映射（需要客户端运行中）')
+  .argument('<remote>:<local>', '远程端口:本地端口（如 8080:3000 或 2222:22）')
+  .option('-h, --host <address>', '本地主机地址（默认为 localhost）')
+  .action(async (remoteLocal, options) => {
+    const info = readPidFile();
+    if (!info) {
+      console.log(chalk.yellow('客户端未在运行'));
+      console.log(chalk.gray('请先使用以下命令启动客户端：'));
+      console.log(chalk.gray('  npx @feng3d/ctc start'));
+      return;
+    }
+
+    // 解析参数
+    const [remotePort, localPort] = remoteLocal.split(':');
+    if (!remotePort || !localPort) {
+      console.log(chalk.yellow('参数格式错误，应为 远程端口:本地端口（如 8080:3000 或 2222:22）'));
+      return;
+    }
+
+    const remote = parseInt(remotePort, 10);
+    const localParts = localPort.split(':');
+    const local = localParts.length === 2 ? parseInt(localParts[1], 10) : parseInt(localParts[0], 10);
+    const localHost = localParts.length === 2 ? localParts[0] : options.host || 'localhost';
+
+    // 通过管理服务器 API 添加代理
+    try {
+      const res = await fetch(`http://127.0.0.1:9001/_ctc/proxies`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          remotePort: remote,
+          localPort: local,
+          localHost: localHost,
+        }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('代理映射已添加'));
+        console.log(chalk.gray(`  #${getProxyIndex()} :${remote} -> ${localHost}:${local}`));
+
+        // 更新配置文件
+        const config = readConfig();
+        if (config) {
+          if (!config.proxies) config.proxies = [];
+          config.proxies.push({ remotePort, localPort, localHost });
+          writeConfig(config);
+        } else {
+          // 创建新配置文件
+          writeConfig({
+            server: 'ws://localhost:9000',
+            proxies: [{ remotePort, localPort, localHost }],
+          });
+        }
+      } else {
+        console.log(chalk.red('添加代理失败'));
+      }
+    } catch (err) {
+      console.log(chalk.red(`请求失败: ${err instanceof Error ? err.message : String(err)}`));
+    }
+  });
+
+// ====== remove-proxy 命令（移除代理）======
+
+program
+  .command('remove-proxy')
+  .alias('rp')
+  .description('移除代理映射（需要客户端运行中）')
+  .argument('<port>', '远程端口号')
+  .action(async (remotePort) => {
+    const info = readPidFile();
+    if (!info) {
+      console.log(chalk.yellow('客户端未在运行'));
+      console.log(chalk.gray('请先使用以下命令启动客户端：'));
+      console.log(chalk.gray('  npx @feng3d/ctc start'));
+      return;
+    }
+
+    const port = parseInt(remotePort, 10);
+    if (isNaN(port)) {
+      console.log(chalk.yellow('端口号格式错误'));
+      return;
+    }
+
+    // 通过管理服务器 API 删除代理
+    try {
+      const res = await fetch(`http://127.0.0.1:9001/_ctc/proxies/${port}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('代理映射已移除'));
+        console.log(chalk.gray(`  端口: ${port}`));
+
+        // 更新配置文件
+        const config = readConfig();
+        if (config && config.proxies) {
+          const index = config.proxies.findIndex(p => p.remotePort === port);
+          if (index !== -1) {
+            config.proxies.splice(index, 1);
+            writeConfig(config);
+          }
+        }
+      } else if (res.status === 404) {
+        console.log(chalk.yellow('代理映射不存在'));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`移除失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err) {
+      console.log(chalk.red(`请求失败: ${err instanceof Error ? err.message : String(err)}`));
     }
   });
 

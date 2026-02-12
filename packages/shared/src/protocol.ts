@@ -143,12 +143,24 @@ export type ConnectionProtocol = 'http' | 'websocket' | 'tcp' | 'udp';
  * 每个端口同时支持 HTTP、WebSocket 和 TCP 所有协议。
  */
 export interface ProxyConfig {
+  /** 代理唯一标识符，用于通过 CLI 操作指定代理 */
+  id?: string;
   /** 服务端监听的远程端口号，外部用户通过此端口访问代理服务 */
   remotePort: number;
   /** 本地服务监听的端口号，代理流量将被转发到此端口 */
   localPort: number;
   /** 本地服务的主机地址，默认为 localhost */
   localHost?: string;
+}
+
+/**
+ * 带编号的代理配置接口
+ *
+ * 在 ProxyConfig 基础上添加运行时分配的编号。
+ */
+export interface ProxyConfigWithIndex extends ProxyConfig {
+  /** 运行时分配的代理编号，从 1 开始 */
+  index: number;
 }
 
 /**

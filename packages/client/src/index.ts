@@ -13,7 +13,7 @@ import { Controller } from './controller.js';
 import { ProxyManager } from './proxy-manager.js';
 import { AdminServer, ClientStatus } from './admin-server.js';
 import { IpcHandler } from './ipc-handler.js';
-import { ProxyConfig, logger } from '@feng3d/chuantou-shared';
+import { ProxyConfig, ProxyConfigWithIndex, logger } from '@feng3d/chuantou-shared';
 import { join } from 'path';
 import { homedir } from 'os';
 
@@ -67,9 +67,10 @@ async function main(): Promise<void> {
   const proxyManager = new ProxyManager(controller);
 
   // 已注册的代理配置列表（用于管理页面）
-  const registeredProxies: ProxyConfig[] = [];
+  const registeredProxies: ProxyConfigWithIndex[] = [];
+  let nextProxyIndex = 1;
   for (const p of config.proxies) {
-    registeredProxies.push({ ...p });
+    registeredProxies.push({ ...p, index: nextProxyIndex++ });
   }
 
   // 创建管理页面服务器
@@ -88,7 +89,7 @@ async function main(): Promise<void> {
     // 添加代理回调
     async (proxy: ProxyConfig): Promise<void> => {
       await proxyManager.registerProxy(proxy);
-      registeredProxies.push({ ...proxy });
+      registeredProxies.push({ ...proxy, index: nextProxyIndex++ });
     },
     // 删除代理回调
     async (remotePort: number): Promise<void> => {
@@ -122,18 +123,6 @@ async function main(): Promise<void> {
         logger.error(`注册代理失败: ${errorMessage}`);
       }
     }
-
-    // 启动管理页面服务器
-    try {
-      await adminServer.start();
-    } catch (error) {
-      logger.error('管理页面启动失败:', error);
-    }
-  });
-
-  controller.on('maxReconnectAttemptsReached', () => {
-    logger.error('已达到最大重连次数，正在退出...');
-    process.exit(1);
   });
 
   // 设置 IPC 请求监听（用于处理 CLI 添加代理的请求）
@@ -144,6 +133,13 @@ async function main(): Promise<void> {
     registeredProxies,
   });
   ipcHandler.start();
+
+  // 启动管理页面服务器（立即启动，不等待认证）
+  try {
+    await adminServer.start();
+  } catch (error) {
+    logger.error('管理页面启动失败:', error);
+  }
 
   // 优雅关闭
   const shutdown = async () => {
@@ -158,14 +154,8 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  // 连接到服务器
-  try {
-    await controller.connect();
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('连接服务器失败:', errorMessage);
-    process.exit(1);
-  }
+  // 连接到服务器（不会抛出连接失败的异常，会自动重连）
+  await controller.connect();
 }
 
 // 检查是否作为主模块运行
@@ -174,6 +164,7 @@ const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g
 if (isMainModule) {
   main().catch((error) => {
     logger.error('启动客户端失败:', error);
+    // 注意：main() 内部已经处理了资源清理
     process.exit(1);
   });
 }

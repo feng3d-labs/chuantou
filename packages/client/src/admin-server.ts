@@ -5,7 +5,7 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { ProxyConfig, ProxyConfigWithIndex } from '@feng3d/chuantou-shared';
 
 /**
  * 客户端状态信息接口
@@ -218,6 +218,16 @@ export class AdminServer {
       display: flex;
       align-items: center;
       gap: 12px;
+    }
+    .proxy-index {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      background: rgba(255, 255, 255, 0.1);
+      color: #aaa;
+      min-width: 32px;
+      text-align: center;
     }
     .proxy-protocol {
       padding: 2px 8px;
@@ -506,6 +516,7 @@ export class AdminServer {
             return \`
               <div class="proxy-item">
                 <div class="proxy-info">
+                  <span class="proxy-index">#\${p.index || '-'}</span>
                   <span class="proxy-protocol">ALL</span>
                   <span class="proxy-remote">:\${p.remotePort}</span>
                   <span class="proxy-arrow">→</span>

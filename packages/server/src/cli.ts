@@ -265,7 +265,15 @@ serveCmd.action(async (options) => {
     tls,
   };
 
-  const server = await start(opts);
+  let server: Awaited<ReturnType<typeof start>> | null = null;
+
+  try {
+    server = await start(opts);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red('服务器启动失败:', errorMessage));
+    process.exit(1);
+  }
 
   writePidFile({
     pid: process.pid,
@@ -280,14 +288,32 @@ serveCmd.action(async (options) => {
   console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
 
   const shutdown = async () => {
-    console.log(chalk.yellow('\n正在关闭...'));
-    await stop(server);
-    removePidFile();
+    try {
+      if (server) await stop(server);
+    } catch {
+      // 忽略停止时的错误
+    }
+    try {
+      removePidFile();
+    } catch {
+      // 忽略清理 PID 文件的错误
+    }
     process.exit(0);
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // 捕获未处理的错误，确保清理 PID 文件
+  process.on('uncaughtException', async (err) => {
+    console.error(chalk.red('服务器异常:', err.message));
+    await shutdown();
+  });
+
+  process.on('unhandledRejection', async (err) => {
+    console.error(chalk.red('服务器 Promise 拒绝:', err));
+    await shutdown();
+  });
 });
 
 // ====== start 命令（后台守护进程 + 开机启动）======
@@ -444,11 +470,31 @@ startCmd.action(async (options) => {
   child.unref();
   closeSync(logFd);
 
-  const started = await waitForStartup(host, controlPort, tls, 10000);
+  let started = false;
+  try {
+    started = await waitForStartup(host, controlPort, tls, 10000);
+  } catch {
+    // waitForStartup 不会抛错，这里只是为了保险
+  }
 
   if (!started) {
+    // 启动失败，清理 PID 文件
+    removePidFile();
     console.log(chalk.red('服务器启动失败，请查看日志文件:'));
     console.log(chalk.gray(`  ${LOG_FILE}`));
+
+    // 尝试显示日志内容以便诊断
+    try {
+      const logContent = readFileSync(LOG_FILE, 'utf-8');
+      const recentLogs = logContent.split('\n').slice(-20).join('\n');
+      if (recentLogs.trim()) {
+        console.log(chalk.gray('\n最近日志:'));
+        console.log(chalk.gray(recentLogs));
+      }
+    } catch {
+      // 无法读取日志，忽略
+    }
+
     process.exit(1);
   }
 
