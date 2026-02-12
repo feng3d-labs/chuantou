@@ -18,9 +18,8 @@
     "ai"
   ],
   "workspaces": [
-    "packages/shared",
-    "packages/client",
-    "packages/server"
+    "packages/*",
+    "labs/*"
   ],
   "files": [
     "SKILL.md"
