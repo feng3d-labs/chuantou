@@ -4,7 +4,8 @@
  * @module cli
  * @description 穿透客户端命令行工具模块。
  * 提供 `feng3d-ctc` CLI 命令，支持启动、停止和查询客户端状态。
- * 单实例模式：只允许一个客户端实例运行，多次 start 会向已运行进程添加端口映射。
+ * 单实例模式：只允许一个客户端实例运行。
+ * 支持从配置文件读取启动参数（开机启动时使用）
  */
 
 import { Command } from 'commander';
@@ -16,7 +17,7 @@ import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get as httpGet } from 'http';
 import { ProxyConfig } from '@feng3d/chuantou-shared';
-import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
 /** 客户端实例数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
@@ -26,6 +27,9 @@ const CLIENT_DIR = join(DATA_DIR, 'client');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件路径 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
+/** 配置文件路径 */
+const CONFIG_FILE = join(CLIENT_DIR, 'boot.json');
+
 /** 客户端信息接口 */
 interface ClientInfo {
   /** 服务器地址 */
@@ -35,19 +39,12 @@ interface ClientInfo {
   /** 启动时间 */
   startedAt: number;
 }
-/** 添加代理请求接口 */
-interface AddProxyRequest {
-  /** 代理配置 */
-  proxy: ProxyConfig;
-  /** 请求 ID */
-  id: string;
-}
 
 /**
  * 写入 PID 文件
  */
 function writePidFile(info: ClientInfo): void {
-  mkdirSync(DATA_DIR, { recursive: true });
+  mkdirSync(CLIENT_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
 }
 
@@ -56,8 +53,7 @@ function writePidFile(info: ClientInfo): void {
  */
 function readPidFile(): ClientInfo | null {
   try {
-    const content = readFileSync(PID_FILE, 'utf-8');
-    return JSON.parse(content);
+    return JSON.parse(readFileSync(PID_FILE, 'utf-8'));
   } catch {
     return null;
   }
@@ -109,241 +105,6 @@ function openBrowser(url: string): void {
   }
 }
 
-/** 通用服务器选项 */
-const serverOptions = [
-  ['-s, --server <url>', '服务器地址 (如 ws://localhost:9000)', 'ws://localhost:9000'],
-  ['-t, --token <token>', '认证令牌'],
-  ['-p, --proxies <proxies>', '代理配置 (格式: remotePort:localPort[:localHost]，每个端口同时支持 HTTP/WebSocket/TCP)'],
-  ['--reconnect-interval <ms>', '重连间隔（毫秒）', '5000'],
-  ['--max-reconnect <number>', '最大重连次数', '10'],
-] as const;
-
-const program = new Command();
-
-program
-  .name('feng3d-ctc')
-  .description(chalk.blue('穿透 - 内网穿透客户端'))
-  .version('0.0.5');
-
-// ====== start 命令（启动）======
-
-const startCmd = program.command('start').alias('ks').description('启动客户端（后台运行）');
-for (const opt of serverOptions) {
-  if (opt.length === 3) {
-    startCmd.option(opt[0], opt[1], opt[2]);
-  } else {
-    startCmd.option(opt[0], opt[1]);
-  }
-}
-startCmd.option('--no-daemon', '前台运行（不作为后台守护进程）');
-startCmd.option('--no-autostart', '不注册开机启动');
-startCmd.option('-o, --open', '启动后在浏览器中打开管理页面');
-startCmd.action(async (options) => {
-  const serverUrl = options.server;
-  const token = options.token;
-  const proxiesStr = options.proxies;
-  const shouldOpenBrowser = options.open as boolean;
-
-  // 解析代理配置
-  const proxies: ProxyConfig[] = [];
-  if (proxiesStr) {
-    for (const p of proxiesStr.split(',')) {
-      const parts = p.trim().split(':');
-      const remotePort = parseInt(parts[0], 10);
-      const localPort = parseInt(parts[1], 10);
-      const localHost = (parts.length >= 3 && parts[2]) ? parts[2] : 'localhost';
-
-      proxies.push({ remotePort, localPort, localHost });
-    }
-  }
-
-  // 检查客户端是否已运行
-  if (isClientRunning()) {
-    const info = readPidFile()!;
-
-    // 客户端已运行，报错退出
-    console.log(chalk.red('客户端已在运行中'));
-    console.log(chalk.gray(`  PID: ${info.pid}`));
-    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
-    console.log(chalk.yellow('如需重启，请先使用 stop 命令停止客户端'));
-    process.exit(1);
-  }
-
-  // 构建 _serve 参数
-  const serveArgs: string[] = [];
-  serveArgs.push('--server', serverUrl);
-  if (token) serveArgs.push('--token', token);
-  if (proxiesStr) serveArgs.push('--proxies', proxiesStr);
-  serveArgs.push('--reconnect-interval', options.reconnectInterval);
-  serveArgs.push('--max-reconnect', options.maxReconnect);
-
-  // 是否后台运行
-  const daemon = options.daemon !== false;
-
-  if (daemon) {
-    // 后台守护进程模式
-    const scriptPath = fileURLToPath(import.meta.url);
-    const nodePath = process.execPath;
-    const logPath = LOG_FILE;
-
-    // 打开日志文件
-    const logFd = openSync(logPath, 'a');
-
-    // 启动后台守护进程
-    const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
-      detached: true,
-      stdio: ['ignore', logFd, logFd],
-    });
-
-    child.unref();
-    closeSync(logFd);
-
-    // 等待一小段时间让进程启动
-    await new Promise((r) => setTimeout(r, 500));
-
-    // 验证进程是否启动成功
-    const pid = child.pid;
-    if (pid === undefined) {
-      console.log(chalk.red('客户端启动失败，请查看日志文件:'));
-      console.log(chalk.gray(`  ${logPath}`));
-      process.exit(1);
-    }
-
-    try {
-      process.kill(pid, 0);
-    } catch {
-      console.log(chalk.red('客户端启动失败，请查看日志文件:'));
-      console.log(chalk.gray(`  ${logPath}`));
-      process.exit(1);
-    }
-
-    // 写入 PID 文件
-    const clientInfo: ClientInfo = { serverUrl, pid, startedAt: Date.now() };
-    writePidFile(clientInfo);
-
-    // 注册开机启动
-    if (options.autostart !== false) {
-      try {
-        registerBoot({
-          isServer: false,
-          nodePath,
-          scriptPath,
-          args: ['--server', serverUrl, ...(token ? ['--token', token] : []), ...(proxiesStr ? ['--proxies', proxiesStr] : []), '--reconnect-interval', options.reconnectInterval, '--max-reconnect', options.maxReconnect]
-        });
-      } catch {
-        // 注册失败不影响正常启动
-      }
-    }
-
-    console.log(chalk.green('客户端已在后台启动'));
-    console.log(chalk.gray(`  日志: ${logPath}`));
-
-    // 等待管理服务器就绪后打印状态
-    await new Promise((r) => setTimeout(r, 2000));
-    await printStatus(clientInfo);
-
-    // 打开浏览器
-    if (shouldOpenBrowser) {
-      openBrowser('http://127.0.0.1:9001/');
-    }
-  } else {
-    // 前台运行模式
-    await runServe(serverUrl, token, proxiesStr, options.reconnectInterval, options.maxReconnect, shouldOpenBrowser);
-  }
-});
-
-// ====== _serve 命令（隐藏，前台运行）======
-
-const serveCmd = program.command('_serve', { hidden: true }).description('前台运行客户端（内部命令）');
-for (const opt of serverOptions) {
-  if (opt.length === 3) {
-    serveCmd.option(opt[0], opt[1], opt[2]);
-  } else {
-    serveCmd.option(opt[0], opt[1]);
-  }
-}
-serveCmd.action(async (options) => {
-  await runServe(options.server, options.token, options.proxies, options.reconnectInterval, options.maxReconnect);
-});
-
-// ====== stop 命令（停止）======
-
-program
-  .command('stop')
-  .alias('tz')
-  .description('停止客户端')
-  .action(async () => {
-    const info = readPidFile();
-    if (!info) {
-      console.log(chalk.yellow('客户端未在运行'));
-      return;
-    }
-
-    try {
-      process.kill(info.pid, 'SIGTERM');
-    } catch (err) {
-      console.log(chalk.yellow(`停止客户端失败: ${err instanceof Error ? err.message : err}`));
-    }
-
-    removePidFile();
-    unregisterBoot();
-    console.log(chalk.green('客户端已停止'));
-  });
-
-// ====== status 命令（状态 + 代理列表）======
-
-program
-  .command('status')
-  .alias('zt')
-  .description('查询客户端状态与代理列表')
-  .action(async () => {
-    const info = readPidFile();
-    if (!info) {
-      console.log(chalk.yellow('客户端未在运行'));
-      return;
-    }
-    await printStatus(info);
-  });
-
-/**
- * 打印客户端状态信息
- */
-async function printStatus(info: ClientInfo): Promise<void> {
-  console.log(chalk.blue.bold('穿透客户端状态'));
-  console.log(chalk.gray(`  PID: ${info.pid}`));
-  console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
-  console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
-  console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
-
-  const status = await getClientStatus();
-  if (status) {
-    const uptime = Math.floor(status.uptime / 1000);
-    const minutes = Math.floor(uptime / 60);
-    const seconds = uptime % 60;
-
-    console.log(chalk.gray(`  连接状态: ${status.authenticated ? '已认证' : status.connected ? '已连接' : '未连接'}`));
-    console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
-    if (status.reconnectAttempts > 0) {
-      console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
-    }
-
-    if (status.proxies.length === 0) {
-      console.log(chalk.gray(`  代理映射: 无`));
-    } else {
-      console.log(chalk.gray(`  代理映射: ${status.proxies.length} 个`));
-      for (const proxy of status.proxies) {
-        console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
-      }
-    }
-  } else {
-    const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
-    const minutes = Math.floor(uptime / 60);
-    const seconds = uptime % 60;
-    console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
-    console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
-  }
-}
-
 /** 管理服务器地址 */
 const ADMIN_URL = 'http://127.0.0.1:9001';
 
@@ -375,21 +136,17 @@ async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: b
 async function runServe(
   serverUrl: string,
   token: string | undefined,
-  proxies: string | undefined,
-  reconnectInterval: string,
-  maxReconnect: string,
-  shouldOpenBrowser?: boolean
+  proxiesStr: string | undefined,
+  shouldOpenBrowser?: boolean,
 ): Promise<void> {
   // 设置 process.argv 供 Config.load 读取
   process.argv = [
     process.argv[0],
     process.argv[1],
     '--server', serverUrl,
-    '--reconnect-interval', reconnectInterval,
-    '--max-reconnect', maxReconnect,
+    ...(token ? ['--token', token] : []),
+    ...(proxiesStr ? ['--proxies', proxiesStr] : []),
   ];
-  if (token) process.argv.push('--token', token);
-  if (proxies) process.argv.push('--proxies', proxies);
 
   // 动态导入 index 模块运行
   const { run } = await import('./index.js');
@@ -404,4 +161,102 @@ async function runServe(
   await run();
 }
 
-program.parse();
+/** 通用选项（服务端与客户端共用）*/
+const commonOptions = [
+  ['-s, --server <url>', '服务器地址'],
+  ['-t, --token <token>', '认证令牌'],
+  ['-p, --proxies <proxies>', '代理配置（格式: remotePort:localPort[:localHost]，逗号分隔多个）'],
+];
+
+const program = new Command();
+
+program
+  .name('feng3d-ctc')
+  .description(chalk.blue('穿透 - 内网穿透客户端'))
+  .version('0.0.5');
+
+// ====== start 命令（启动）======
+
+const startCmd = program.command('start').alias('ks').description('启动客户端');
+for (const opt of commonOptions) {
+  if (opt.length === 3) {
+    startCmd.option(opt[0], opt[1], opt[2]);
+  } else {
+    startCmd.option(opt[0], opt[1]);
+  }
+}
+
+// ====== stop 命令（停止）======
+
+program
+  .command('stop')
+  .alias('tz')
+  .description('停止客户端')
+  .action(async () => {
+    const info = readPidFile();
+    if (!info) {
+      console.log(chalk.yellow('客户端未在运行'));
+      return;
+    }
+
+    try {
+      process.kill(info.pid, 'SIGTERM');
+    } catch (err) {
+      console.log(chalk.yellow(`停止客户端失败: ${err instanceof Error ? err.message : err}`));
+    }
+
+    removePidFile();
+    unregisterBoot();
+    console.log(chalk.green('客户端已停止'));
+  });
+
+// ====== status 命令（状态）======
+
+program
+  .command('status')
+  .alias('zt')
+  .description('查询客户端状态')
+  .action(async () => {
+    const info = readPidFile();
+    if (!info) {
+      console.log(chalk.yellow('客户端未在运行'));
+      return;
+    }
+
+    console.log(chalk.blue.bold('穿透客户端状态'));
+    console.log(chalk.gray(`  PID: ${info.pid}`));
+    console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`  管理页面: ${ADMIN_URL}/`));
+    console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
+
+    const status = await getClientStatus();
+    if (status) {
+      const uptime = Math.floor(status.uptime / 1000);
+      const minutes = Math.floor(uptime / 60);
+      const seconds = uptime % 60;
+
+      console.log(chalk.gray(`  连接状态: ${status.authenticated ? '已认证' : status.connected ? '已连接' : '未连接'}`));
+      if (uptime > 0) {
+        console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+      }
+      if (status.reconnectAttempts > 0) {
+        console.log(chalk.gray(`  重连次数: ${status.reconnectAttempts} 次`));
+      }
+
+      if (status.proxies.length === 0) {
+        console.log(chalk.gray(`  代理映射: 无`));
+      } else {
+        console.log(chalk.gray(`  代理映射: ${status.proxies.length} 个`));
+        for (const proxy of status.proxies) {
+          console.log(chalk.gray(`    :${proxy.remotePort} -> ${proxy.localHost || 'localhost'}:${proxy.localPort}`));
+        }
+      }
+    }
+  } else {
+      const uptime = Math.floor((Date.now() - info.startedAt) / 1000);
+      const minutes = Math.floor(uptime / 60);
+      const seconds = uptime % 60;
+      console.log(chalk.gray(`  运行时长: ${minutes}分${seconds}秒`));
+      console.log(chalk.gray(`  (管理服务器未就绪，部分信息不可用)`));
+    }
+  });
