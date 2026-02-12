@@ -187,11 +187,9 @@ startCmd.action(async (options) => {
         remotePort,
         localPort,
         localHost,
+        // 只有在明确指定协议时才添加 protocol 字段
+        ...(protocol !== undefined && { protocol }),
       };
-      // 只有在明确指定协议时才添加 protocol 字段
-      if (protocol !== undefined) {
-        config.protocol = protocol;
-      }
       proxies.push(config);
     }
   }
