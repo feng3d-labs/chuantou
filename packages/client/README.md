@@ -18,42 +18,39 @@
 
 ```bash
 # 启动客户端（连接本地服务器测试）
-npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
+npx @feng3d/ctc ks -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
 
-# 查询状态
-npx @feng3d/ctc status
-
-# 列出代理映射
-npx @feng3d/ctc list
+# 查询状态与代理列表
+npx @feng3d/ctc zt
 
 # 停止客户端
-npx @feng3d/ctc stop
+npx @feng3d/ctc tz
 ```
 
 ## 命令说明
 
-### `start` - 启动客户端
+### `ks` - 启动客户端（别名：`start`）
 
 ```bash
-npx @feng3d/ctc start [选项]
+npx @feng3d/ctc ks [选项]
 ```
 
-**单实例模式**：只允许一个客户端实例运行。如果客户端已运行，后续的 `start` 命令会向已运行的进程添加新的代理映射。
+**单实例模式**：只允许一个客户端实例运行。如果客户端已运行，后续的 `ks` 命令会向已运行的进程添加新的代理映射。
 
 **常用示例：**
 
 ```bash
 # 指定服务器地址和认证令牌
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token"
+npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token"
 
 # 添加单个代理映射：远程8080端口代理到本地3000端口
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost"
+npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost"
 
 # 添加多个代理映射
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost,8081:3001,8082:8080"
+npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost,8081:3001,8082:8080"
 
 # 完整参数示例：指定服务器、令牌、代理和重连配置
-npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
+npx @feng3d/ctc ks -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:localhost" --reconnect-interval 5000 --max-reconnect 10
 ```
 
 **参数说明：**
@@ -68,41 +65,29 @@ npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:l
 | `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
 | `-o, --open` | 启动后在浏览器中打开管理页面 | - | - |
 
-### `status` - 查询客户端状态
+### `zt` - 查询客户端状态与代理列表（别名：`status`）
 
 ```bash
-npx @feng3d/ctc status
+npx @feng3d/ctc zt
 ```
 
 **输出示例：**
 
 ```
 穿透客户端状态
-  运行中: 是
-  服务器: ws://your-server.com:9000
   PID: 12345
+  服务器: ws://your-server.com:9000
+  连接状态: 已认证
   运行时长: 5分30秒
-  代理数量: 2
+  代理映射: 2 个
+    :8080 -> localhost:3000
+    :8081 -> localhost:3001
 ```
 
-### `list` - 列出代理映射
+### `tz` - 停止客户端（别名：`stop`）
 
 ```bash
-npx @feng3d/ctc list
-```
-
-**输出示例：**
-
-```
-当前代理映射:
-  :8080 -> localhost:3000
-  :8081 -> localhost:3001
-```
-
-### `stop` - 停止客户端
-
-```bash
-npx @feng3d/ctc stop
+npx @feng3d/ctc tz
 ```
 
 停止客户端并清理所有代理映射。
