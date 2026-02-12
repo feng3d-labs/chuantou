@@ -18,7 +18,7 @@ import { request as httpsRequest } from 'https';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { start, stop } from './index.js';
-import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
 /** PID 文件存放目录路径 */
 const PID_DIR = join(homedir(), '.chuantou');
@@ -343,6 +343,7 @@ startCmd.action(async (options) => {
   if (options.boot !== false) {
     try {
       registerBoot({
+        isServer: true,
         nodePath,
         scriptPath,
         args: serveArgs,

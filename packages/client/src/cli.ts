@@ -16,7 +16,7 @@ import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { get as httpGet } from 'http';
 import { ProxyConfig } from '@feng3d/chuantou-shared';
-import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared';
 
 /** 客户端实例数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
@@ -237,7 +237,12 @@ startCmd.action(async (options) => {
     // 注册开机启动
     if (options.autostart !== false) {
       try {
-        registerBoot({ nodePath, scriptPath, args: ['--server', serverUrl, ...(token ? ['--token', token] : []), ...(proxiesStr ? ['--proxies', proxiesStr] : []), '--reconnect-interval', options.reconnectInterval, '--max-reconnect', options.maxReconnect] });
+        registerBoot({
+          isServer: false,
+          nodePath,
+          scriptPath,
+          args: ['--server', serverUrl, ...(token ? ['--token', token] : []), ...(proxiesStr ? ['--proxies', proxiesStr] : []), '--reconnect-interval', options.reconnectInterval, '--max-reconnect', options.maxReconnect]
+        });
       } catch {
         // 注册失败不影响正常启动
       }

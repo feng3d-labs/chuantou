@@ -15,3 +15,5 @@ export * from './protocol.js';
 export * from './logger.js';
 /** 导出数据通道二进制帧协议工具 */
 export * from './data-channel.js';
+/** 导出开机启动管理模块（服务端/客户端通用） */
+export * from './boot.js';
