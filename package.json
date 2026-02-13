@@ -19,6 +19,7 @@
   ],
   "workspaces": [
     "packages/*",
+    "packages/client/admin-ui",
     "labs/*"
   ],
   "files": [
@@ -28,14 +29,14 @@
     "install:all": "npm install",
     "start:server": "npm run start --workspace=packages/server",
     "start:client": "npm run start --workspace=packages/client",
-    "build": "npm run build -w packages/shared && npm run build -w packages/client && npm run build -w packages/server",
+    "build": "npm run build -w packages/shared && npm run build -w packages/client/admin-ui && npm run build -w packages/client && npm run build -w packages/server",
     "watch": "concurrently -n shared,client,server -c blue,green,yellow \"tsc --watch --pretty -p packages/shared\" \"tsc --watch --pretty -p packages/client\" \"tsc --watch --pretty -p packages/server\"",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "version": "node scripts/set-version.js",
-    "clean": "rm -rf node_modules packages/shared/node_modules packages/client/node_modules packages/server/node_modules packages/shared/dist packages/client/dist packages/server/dist"
+    "clean": "rm -rf node_modules packages/shared/node_modules packages/client/node_modules packages/server/node_modules packages/client/admin-ui/node_modules packages/shared/dist packages/client/dist packages/server/dist packages/client/admin-ui/dist"
   },
   "author": "",
   "license": "ISC",
