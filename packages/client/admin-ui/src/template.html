@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>穿透客户端管理</title>
+  <link rel="stylesheet" href="/_ctc/static/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>🔌 feng3d-ctc 穿透客户端</h1>
+      <div class="status running" id="status">运行中</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-label">服务器</div>
+        <div class="card-value" id="server">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">连接状态</div>
+        <div class="card-value" id="connection">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">运行时长</div>
+        <div class="card-value"><span id="uptime">-</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">反向代理</div>
+        <div class="card-value"><span id="proxyCount">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">正向穿透</div>
+        <div class="card-value"><span id="forwardCount">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">重连次数</div>
+        <div class="card-value"><span id="reconnectCount">0</span><span class="unit"> 次</span></div>
+      </div>
+    </div>
+
+    <!-- 标签切换 -->
+    <div class="tabs">
+      <button class="tab active" id="tabReverse" onclick="switchTab('reverse')">反向代理模式</button>
+      <button class="tab" id="tabForward" onclick="switchTab('forward')">正向穿透模式</button>
+      <button class="tab" id="tabGuide" onclick="switchTab('guide')">使用说明</button>
+    </div>
+
+    <!-- 反向代理面板 -->
+    <div class="proxies-section" id="reversePanel">
+      <div class="section-header">
+        <div class="section-title">反向代理映射</div>
+        <button class="btn btn-primary btn-sm" id="showAddForm">+ 添加代理</button>
+      </div>
+
+      <div class="section-info">
+        <strong>反向代理模式</strong> — 将公网端口映射到本地服务，适用于需要将本地服务暴露到公网的场景。
+        访问 <code>http://服务器:端口</code> 即可访问本地服务。
+      </div>
+
+      <div class="add-form" id="addForm">
+        <div class="form-row">
+          <div class="form-group">
+            <label>远程端口</label>
+            <input type="number" id="newRemotePort" placeholder="8080" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>本地端口</label>
+            <input type="number" id="newLocalPort" placeholder="3000" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>本地地址</label>
+            <input type="text" id="newLocalHost" placeholder="localhost">
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary" id="addProxy">添加</button>
+            <button class="btn btn-secondary" id="cancelAdd">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="proxiesList"></div>
+    </div>
+
+    <!-- 正向穿透面板 -->
+    <div class="proxies-section hidden" id="forwardPanel">
+      <div class="section-header">
+        <div class="section-title">正向穿透映射</div>
+        <div>
+          <button class="btn btn-primary btn-sm forward-btn" id="refreshClients">刷新客户端</button>
+          <button class="btn btn-primary btn-sm forward-btn" id="showForwardForm">+ 添加穿透</button>
+        </div>
+      </div>
+
+      <div class="section-info">
+        <strong>正向穿透模式</strong> — 连接本地端口到远程客户端的端口，实现设备间的点对点连接。
+        本地端口 <code>:本地端口</code> → 中继服务器 → 目标客户端 <code>:目标端口</code>
+      </div>
+
+      <!-- 客户端注册状态 -->
+      <div id="registerSection" style="margin-bottom: 16px;">
+        <button class="btn btn-primary forward-btn btn-sm" id="registerBtn">注册到服务器</button>
+        <span id="registerStatus" style="margin-left: 12px; color: #888; font-size: 13px;"></span>
+      </div>
+
+      <!-- 在线客户端列表 -->
+      <div id="clientsSection" class="hidden" style="margin-bottom: 16px;">
+        <div class="section-subtitle" style="font-size: 13px; color: #888; margin-bottom: 8px;">在线客户端列表</div>
+        <div id="clientsList" class="client-list"></div>
+      </div>
+
+      <div class="add-form forward-form" id="forwardForm">
+        <div class="form-row forward-row">
+          <div class="form-group">
+            <label>本地端口</label>
+            <input type="number" id="forwardLocalPort" placeholder="8080" min="1" max="65535">
+          </div>
+          <div class="form-group">
+            <label>目标客户端</label>
+            <select id="targetClientId">
+              <option value="">请先刷新客户端列表</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>目标端口</label>
+            <input type="number" id="forwardTargetPort" placeholder="3000" min="1" max="65535">
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-primary forward-btn" id="addForward">添加</button>
+            <button class="btn btn-secondary" id="cancelForward">取消</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="forwardList"></div>
+    </div>
+
+    <!-- 使用说明面板 -->
+    <div class="usage-guide hidden" id="guidePanel">
+      <div class="usage-title">📖 使用说明</div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">反向代理模式</div>
+        <div class="usage-text">
+          <strong>用途：</strong>将本地服务暴露到公网，适用于开发调试、远程访问本地服务等场景。<br><br>
+          <strong>工作原理：</strong><br>
+          1. 客户端连接到中继服务器并注册代理映射<br>
+          2. 服务器在指定公网端口监听连接<br>
+          3. 外部用户访问 <code>http://服务器IP:远程端口</code><br>
+          4. 服务器将连接通过数据通道转发到客户端的本地端口<br><br>
+          <strong>使用场景：</strong>本地开发、微信开发、远程桌面、NAS 访问等
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">正向穿透模式</div>
+        <div class="usage-text">
+          <strong>用途：</strong>实现多个内网设备之间的点对点连接，无需公网暴露。<br><br>
+          <strong>工作原理：</strong><br>
+          1. 多个客户端都连接到同一个中继服务器<br>
+          2. 客户端 A 注册为可被发现，客户端 B 可以查看在线客户端列表<br>
+          3. 客户端 B 创建本地端口 → 目标客户端端口的映射<br>
+          4. 用户连接本地端口，数据通过中继服务器转发到目标客户端的指定端口<br><br>
+          <strong>使用场景：</strong>分支机构互联、SSH 跳板机、远程办公室设备访问、点对点文件传输
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">架构对比</div>
+        <div class="usage-text">
+          <strong>反向代理（传统模式）：</strong><br>
+          公网用户 → 中继服务器:端口 → 内网客户端:本地端口<br><br>
+          <strong>典型工具：</strong>ngrok、frp<br><br>
+
+          <strong>正向穿透（本系统特色）：</strong><br>
+          用户 → 客户端A:本地端口 → 中继服务器 → 客户端B:目标端口<br>
+          <strong>优势：</strong>无需公网暴露、设备间直连、支持多客户端组网
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">快速开始</div>
+        <div class="usage-text">
+          <strong>1. 启动服务器：</strong><code>npx @feng3d/cts start</code><br>
+          <strong>2. 启动客户端 A（反向代理）：</strong><code>npx @feng3d/ctc start -p "8080:3000"</code><br>
+          <strong>3. 启动客户端 B（正向穿透）：</strong><code>npx @feng3d/ctc start</code>，然后在管理页面注册并添加穿透映射<br>
+          <strong>4. 访问服务：</strong>浏览器打开 <code>http://服务器IP:8080</code> 即可访问客户端 A 的本地服务
+        </div>
+      </div>
+    </div>
+
+    <div class="last-update">最后更新: <span id="lastUpdate">-</span></div>
+
+    <div class="footer">
+      <a href="https://github.com/feng3d/chuantou" target="_blank">feng3d-ctc</a>
+      — 内网穿透客户端
+    </div>
+  </div>
+
+  <div class="modal" id="deleteModal">
+    <div class="modal-content">
+      <div class="modal-title">确认删除代理</div>
+      <div class="modal-body">确定要删除此代理映射吗？</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancelDelete">取消</button>
+        <button class="btn btn-danger" id="confirmDelete">删除</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/_ctc/static/app.js"></script>
+</body>
+</html>
