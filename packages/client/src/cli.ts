@@ -37,6 +37,8 @@ interface PidFileInfo {
   pid: number;
   /** 服务器地址 */
   serverUrl: string;
+  /** 管理页面端口 */
+  adminPort: number;
   /** 启动时间戳 */
   startedAt: number;
   /** 最后重启时间戳（可选） */
@@ -53,7 +55,7 @@ const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
 /** 管理服务器 URL */
-const ADMIN_URL = 'http://127.0.0.1:9001';
+const ADMIN_URL_DEFAULT = 'http://127.0.0.1:9001';
 
 /**
  * 帮助文本
@@ -261,6 +263,7 @@ const startCmd = program.command('start')
   .description('启动客户端（后台守护进程）')
   .option('--server <url>', '服务器地址')
   .option('--token <token>', '认证令牌')
+  .option('--admin-port <port>', '管理页面端口（默认：9001）')
   .option('--no-boot', '不注册开机自启动')
   .option('-o, --open', '启动后打开管理页面')
   .action(async (options) => {
@@ -299,6 +302,7 @@ const startCmd = program.command('start')
     const serveArgs = ['--config', CONFIG_FILE];
     if (serverUrl) serveArgs.push('--server', serverUrl);
     if (token) serveArgs.push('--token', token);
+    if (adminPort) serveArgs.push('--admin-port', adminPort.toString());
 
     // 打开日志文件
     const logFd = openSync(LOG_FILE, 'a');
@@ -314,6 +318,7 @@ const startCmd = program.command('start')
       writePidFile({
         pid: child.pid,
         serverUrl,
+        adminPort,
         startedAt: Date.now(),
       });
     }
