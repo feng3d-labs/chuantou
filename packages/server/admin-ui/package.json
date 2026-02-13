@@ -6,8 +6,9 @@
   "description": "Admin UI for feng3d-cts server",
   "files": ["dist"],
   "scripts": {
-    "build": "tsc && npm run copy:assets",
+    "build": "tsc && pnpm run copy:assets",
     "copy:assets": "cp src/*.html src/*.css dist/",
+    "clean": "rm -rf dist",
     "watch": "tsc --watch"
   },
   "devDependencies": {

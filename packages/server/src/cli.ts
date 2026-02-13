@@ -193,11 +193,10 @@ async function waitForStartup(host: string, port: number, tls: boolean, timeoutM
  * @param url - 需要打开的 URL
  */
 function openBrowser(url: string): void {
-  const os = platform();
   try {
-    if (os === 'win32') {
+    if (platform() === 'win32') {
       execSync(`cmd.exe /c start "" "${url}"`, { stdio: 'ignore' });
-    } else if (os === 'darwin') {
+    } else if (platform() === 'darwin') {
       execSync(`open "${url}"`, { stdio: 'ignore' });
     } else {
       // Linux
@@ -343,7 +342,7 @@ startCmd.action(async (options) => {
       console.log(chalk.red('服务器已在运行中'));
       console.log(chalk.gray(`  PID: ${existing.pid}`));
       console.log(chalk.gray(`  端口: ${existing.controlPort}`));
-      console.log(chalk.yellow('如需重启，请先使用 close 命令关闭服务器'));
+      console.log(chalk.yellow('如需重启，请先使用 stop 命令关闭服务器'));
       process.exit(1);
     } catch {
       // PID 文件残留，清理后继续
