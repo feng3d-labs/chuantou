@@ -26,9 +26,6 @@
     "SKILL.md"
   ],
   "scripts": {
-    "install:all": "npm install",
-    "start:server": "npm start --workspace=@feng3d/cts",
-    "start:client": "npm start --workspace=@feng3d/ctc",
     "build": "npm run build -ws",
     "watch": "npm run watch -ws",
     "test": "vitest run",
