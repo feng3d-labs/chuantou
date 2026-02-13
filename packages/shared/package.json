@@ -19,7 +19,6 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "node sync-workspace.js",
     "watch": "tsc --watch --pretty",
     "clean": "rm -rf dist",
     "test": "tsc --pretty && node -e \"require('typescript').default({}).test()\""

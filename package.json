@@ -26,17 +26,17 @@
     "SKILL.md"
   ],
   "scripts": {
-    "install:all": "pnpm install",
-    "start:server": "pnpm --filter @feng3d/cts run start",
-    "start:client": "pnpm --filter @feng3d/ctc run start",
-    "build": "pnpm -r run build",
-    "watch": "pnpm -r run watch",
+    "install:all": "npm install",
+    "start:server": "npm start --workspace=@feng3d/cts",
+    "start:client": "npm start --workspace=@feng3d/ctc",
+    "build": "npm run build -ws",
+    "watch": "npm run watch -ws",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "version": "node scripts/set-version.js",
-    "clean": "pnpm -r run clean",
+    "clean": "npm run clean -ws",
     "git:clean": "git clean -fdx"
   },
   "author": "",
