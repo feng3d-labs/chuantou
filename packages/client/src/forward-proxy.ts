@@ -23,22 +23,12 @@ import {
   ConnectionErrorMessage,
   ProxyTargetPortMessage,
   TargetPortConnectedMessage,
+  ForwardProxyEntry,
 } from '@feng3d/chuantou-shared';
 import { Controller } from './controller.js';
 
-/**
- * 正向穿透代理配置
- */
-export interface ForwardProxyEntry {
-  /** 本地监听端口 */
-  localPort: number;
-  /** 目标客户端 ID */
-  targetClientId: string;
-  /** 目标端口 */
-  targetPort: number;
-  /** 是否启用 */
-  enabled: boolean;
-}
+// 重新导出 ForwardProxyEntry 供其他模块使用
+export type { ForwardProxyEntry };
 
 /**
  * 会话信息

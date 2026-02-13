@@ -24,7 +24,7 @@ import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared';
-import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared';
 
 /** 数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');

@@ -11,6 +11,9 @@ import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { ProxyConfig, ForwardProxyEntry } from '@feng3d/chuantou-shared';
 
+// 重新导出 ForwardProxyEntry 供其他模块使用
+export type { ForwardProxyEntry };
+
 /**
  * 客户端状态信息接口
  */
