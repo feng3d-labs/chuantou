@@ -16,14 +16,30 @@ import { createServer as createHttpServer, IncomingMessage, ServerResponse, Serv
 import { createServer as createHttpsServer } from 'https';
 import { createServer as createTcpServer, Server as TcpServer, Socket } from 'net';
 import { createSocket as createUdpSocket, Socket as UdpSocket } from 'dgram';
+import { readFile, existsSync } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ServerConfig, DEFAULT_CONFIG, logger, isDataChannelAuth } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
 import { UnifiedProxyHandler } from './handlers/unified-proxy.js';
 import { DataChannelManager } from './data-channel.js';
 
-/** 状态页面 HTML 模板 */
-const STATUS_HTML = `<!DOCTYPE html>
+/**
+ * 管理页面静态文件目录路径
+ */
+const ADMIN_UI_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'admin-ui', 'dist');
+
+/**
+ * HTML 模板文件路径
+ */
+const TEMPLATE_PATH = join(ADMIN_UI_DIR, 'template.html');
+
+/**
+ * 获取后备 HTML 页面（当模板文件不存在时使用）
+ */
+function getFallbackHtml(): string {
+  return `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
@@ -144,6 +160,7 @@ const STATUS_HTML = `<!DOCTYPE html>
   </script>
 </body>
 </html>`;
+}
 
 /**
  * 服务器状态信息接口
@@ -317,12 +334,51 @@ export class ForwardServer {
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     const url = req.url ?? '/';
 
+    // 首页 - 读取模板文件
     if (url === '/' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(STATUS_HTML);
+      if (existsSync(TEMPLATE_PATH)) {
+        readFile(TEMPLATE_PATH, 'utf-8', (err, data) => {
+          if (err) {
+            res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+            res.end('Error loading page');
+          } else {
+            res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+            res.end(data);
+          }
+        });
+      } else {
+        // 如果模板文件不存在，返回简单的内嵌页面
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(getFallbackHtml());
+      }
       return;
     }
 
+    // 静态文件服务 (style.css, app.js)
+    if (req.method === 'GET' && url !== '/' && !url.startsWith('/_chuantou/')) {
+      const fileName = url.slice(1) as string;
+      const filePath = join(ADMIN_UI_DIR, fileName);
+
+      readFile(filePath, (err, data) => {
+        if (err || !data) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('File not found');
+          return;
+        }
+        const ext = fileName.split('.').pop() || 'html';
+        const contentType = ext === 'css' ? 'text/css; charset=utf-8' :
+                         ext === 'js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600'
+        });
+        res.end(data);
+      });
+      return;
+    }
+
+    // 服务器状态 API
     if (url === '/_chuantou/status' && req.method === 'GET') {
       const status = this.getStatus();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -330,6 +386,7 @@ export class ForwardServer {
       return;
     }
 
+    // 客户端会话列表 API
     if (url === '/_chuantou/sessions' && req.method === 'GET') {
       const sessions = this.sessionManager.getSessions();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -337,6 +394,50 @@ export class ForwardServer {
       return;
     }
 
+    // 端口映射列表 API
+    if (url === '/_chuantou/ports' && req.method === 'GET') {
+      const sessions = this.sessionManager.getSessions();
+      const ports: Array<{ port: number; clientId: string; connections: number }> = [];
+      for (const session of sessions) {
+        const clientInfo = this.sessionManager.getClientInfo(session.clientId);
+        if (clientInfo) {
+          for (const port of clientInfo.registeredPorts) {
+            // 获取该端口的活跃连接数
+            const connectionCount = clientInfo.connections.size;
+            ports.push({
+              port,
+              clientId: session.clientId,
+              connections: connectionCount,
+            });
+          }
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ports }));
+      return;
+    }
+
+    // 断开客户端会话 API
+    if (url.startsWith('/_chuantou/sessions/') && url.endsWith('/disconnect') && req.method === 'POST') {
+      const clientId = url.slice('/_chuantou/sessions/'.length, -'/disconnect'.length);
+      const clientInfo = this.sessionManager.getClientInfo(clientId);
+      if (clientInfo) {
+        // 关闭 WebSocket 连接
+        const socket = this.sessionManager.getClientSocket(clientId);
+        if (socket) {
+          socket.close();
+        }
+        this.sessionManager.removeSession(clientId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: '客户端已断开' }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: '客户端不存在' }));
+      }
+      return;
+    }
+
+    // 停止服务器 API
     if (url === '/_chuantou/stop' && req.method === 'POST') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message: '服务器正在停止' }));
@@ -344,8 +445,8 @@ export class ForwardServer {
       return;
     }
 
-    res.writeHead(200);
-    res.end('穿透服务器正在运行');
+    res.writeHead(404);
+    res.end('Not Found');
   }
 
   async stop(): Promise<void> {
