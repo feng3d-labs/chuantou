@@ -6,6 +6,9 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
+import { exists, readFile } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ProxyConfig, ProxyConfigWithIndex, ForwardProxyEntry } from '@feng3d/chuantou-shared';
 
 /**
@@ -79,7 +82,12 @@ export class AdminServer {
   private getClientListCallback?: () => Promise<any>;
 
   /**
-   * 状态页面 HTML 模板
+   * 静态文件路径常量
+   */
+  private static readonly STATIC_DIR = join(dirname(import.meta.url || '.'), 'admin-ui', 'dist');
+
+  /**
+   * 状态页面 HTML 模板（保留作为备用）
    */
   private static readonly STATUS_HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -1265,11 +1273,41 @@ export class AdminServer {
   private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
 
-    // 管理页面
+    // 静态文件服务
     if (url === '/' && req.method === 'GET') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(AdminServer.STATUS_HTML);
       return;
+    }
+
+    // 处理静态文件请求
+    if (req.method === 'GET' && url.startsWith('/_ctc/static/')) {
+      const fileName = url.slice('/_ctc/static/'.length) as string;
+      const filePath = join(AdminServer.STATIC_DIR, fileName);
+
+      try {
+        const data = await readFile(filePath, 'utf-8');
+        if (!data) {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('File not found');
+          return;
+        }
+        const ext = fileName.split('.').pop() || 'html';
+        const contentType = ext === 'css' ? 'text/css; charset=utf-8' :
+                         ext === 'js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+
+        res.writeHead(200, {
+          'Content-Type': contentType as string,
+          'Cache-Control': 'public, max-age=3600'
+        });
+        res.end(data as string);
+        return;
+      } catch (err) {
+        console.error('静态文件读取错误:', err);
+        res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+        res.end('File not found');
+        return;
+      }
     }
 
     // 状态 API
