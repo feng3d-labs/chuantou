@@ -6,10 +6,10 @@
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { exists, readFile } from 'fs';
+import { readFile } from 'fs';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
-import { ProxyConfig, ProxyConfigWithIndex, ForwardProxyEntry } from '@feng3d/chuantou-shared';
+import { ProxyConfig, ForwardProxyEntry } from '@feng3d/chuantou-shared';
 
 /**
  * 客户端状态信息接口
@@ -201,9 +201,9 @@ export class AdminServer {
       return;
     }
 
-    // 处理静态文件请求
-    if (req.method === 'GET' && url.startsWith('/_ctc/static/')) {
-      const fileName = url.slice('/_ctc/static/'.length) as string;
+    // 处理静态文件请求 (支持 .js, .css 等静态资源直接从根路径访问)
+    if (req.method === 'GET' && url !== '/' && !url.startsWith('/_ctc/')) {
+      const fileName = url.slice(1) as string; // 去掉开头的 /
       const filePath = join(AdminServer.STATIC_DIR, fileName);
 
       readFile(filePath, 'utf-8', (err, data) => {
