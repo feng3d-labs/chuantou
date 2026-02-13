@@ -427,6 +427,17 @@ const restartCmd = program.command('restart')
 
     startChild.unref();
     console.log(chalk.green('客户端已重启'));
+
+    // 等待客户端启动并显示状态
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const newInfo = readPidFile();
+    if (newInfo) {
+      console.log(chalk.gray(`  PID: ${newInfo.pid}`));
+      console.log(chalk.gray(`  管理页面: http://127.0.0.1:${newInfo.adminPort}`));
+    } else {
+      console.log(chalk.yellow('  启动状态: 未知'));
+    }
   });
 
 // ==================== status 命令 ====================
