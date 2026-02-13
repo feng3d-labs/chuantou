@@ -444,6 +444,7 @@ const statusCmd = program.command('status')
     console.log(chalk.blue.bold('穿透客户端状态'));
     console.log(chalk.gray(`  PID: ${info.pid}`));
     console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`  管理页面: http://127.0.0.1:${info.adminPort}`));
     console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
     console.log(chalk.gray(`  日志: ${LOG_FILE}`));
     console.log(chalk.gray(`  启动时间: ${new Date(info.startedAt).toLocaleString('zh-CN')}`));
