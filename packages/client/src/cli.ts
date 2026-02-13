@@ -67,7 +67,7 @@ ${chalk.bold('用法：')} cts <${chalk.bold('命令')}> [选项]
 
 ${chalk.bold('命令：')}
   ${chalk.cyan('start')}      启动客户端（后台守护进程）
-  ${chalk.cyan('close')}      关闭客户端
+  ${chalk.cyan('stop')}       关闭客户端
   ${chalk.cyan('restart')}    重启客户端
   ${chalk.cyan('status')}     查看运行状态
   ${chalk.cyan('proxies')}    管理反向代理映射
@@ -362,9 +362,9 @@ const startCmd = program.command('start')
     }
   });
 
-// ==================== close 命令 ====================
+// ==================== stop 命令 ====================
 
-const closeCmd = program.command('close')
+const stopCmd = program.command('stop')
   .description('关闭客户端')
   .action(async () => {
     const info = readPidFile();
