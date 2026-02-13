@@ -324,6 +324,7 @@ const startCmd = program.command('start')
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  PID: ${child.pid}`));
     console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
     console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
     // 如果需要开机自启动
@@ -434,6 +435,8 @@ const statusCmd = program.command('status')
     console.log(chalk.blue.bold('穿透客户端状态'));
     console.log(chalk.gray(`  PID: ${info.pid}`));
     console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
+    console.log(chalk.gray(`  日志: ${LOG_FILE}`));
     console.log(chalk.gray(`  启动时间: ${new Date(info.startedAt).toLocaleString('zh-CN')}`));
     console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 

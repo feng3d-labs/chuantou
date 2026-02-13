@@ -330,6 +330,32 @@ export class ControlHandler {
   private async handleAuth(clientId: string, socket: WebSocket, message: AuthMessage): Promise<void> {
     const { token } = message.payload;
 
+    // 如果服务端未配置认证令牌，则允许所有客户端通过认证（无认证模式）
+    if (this.config.authTokens.length === 0) {
+      const authenticated = this.sessionManager.authenticateClient(clientId);
+      if (authenticated) {
+        const authTimeout = (socket as any)._authTimeout;
+        if (authTimeout) {
+          clearTimeout(authTimeout);
+          delete (socket as any)._authTimeout;
+        }
+
+        this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
+          success: true,
+          clientId,
+        }, message.id));
+        logger.log(`客户端 ${clientId} 认证成功（无认证模式）`);
+      } else {
+        this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
+          success: false,
+          error: '认证失败',
+        }, message.id));
+        socket.close();
+      }
+      return;
+    }
+
+    // 配置了认证令牌，则需要验证
     if (!token) {
       this.sendMessage(socket, createMessage(MessageType.AUTH_RESP, {
         success: false,

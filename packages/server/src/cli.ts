@@ -256,10 +256,14 @@ serveCmd.action(async (options) => {
     ? { key: readFileSync(tlsKey, 'utf-8'), cert: readFileSync(tlsCert, 'utf-8') }
     : undefined;
 
+  // 处理 authTokens：空字符串表示无认证模式
+  const tokensStr = configOpts?.tokens || options.tokens || '';
+  const authTokens = tokensStr ? tokensStr.split(',') : [];
+
   const opts = {
     host: configOpts?.host || options.host,
     controlPort: parseInt(configOpts?.port || options.port, 10),
-    authTokens: (configOpts?.tokens || options.tokens) ? (configOpts?.tokens || options.tokens)!.split(',') : [],
+    authTokens,
     heartbeatInterval: parseInt(configOpts?.heartbeatInterval || options.heartbeatInterval, 10),
     sessionTimeout: parseInt(configOpts?.sessionTimeout || options.sessionTimeout, 10),
     tls,

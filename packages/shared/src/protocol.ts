@@ -117,8 +117,8 @@ export const DEFAULT_CONFIG = {
 
   /** 断线重连间隔时间，单位毫秒（默认 5 秒） */
   RECONNECT_INTERVAL: 5000,
-  /** 最大重连尝试次数（默认 10 次） */
-  MAX_RECONNECT_ATTEMPTS: 10,
+  /** 最大重连尝试次数（默认 Infinity，表示无限重连） */
+  MAX_RECONNECT_ATTEMPTS: Infinity,
 
   /** 允许注册的最小端口号 */
   MIN_PORT: 1024,

@@ -67,7 +67,7 @@ describe('protocol - 常量', () => {
     });
 
     it('should have correct max reconnect attempts', () => {
-      expect(DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS).toBe(10);
+      expect(DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS).toBe(Infinity);
     });
 
     it('should have correct port range', () => {
