@@ -26,6 +26,7 @@
     "SKILL.md"
   ],
   "scripts": {
+    "preinstall": "node scripts/preinstall.cjs",
     "install:all": "pnpm install",
     "start:server": "pnpm --filter @feng3d/cts run start",
     "start:client": "pnpm --filter @feng3d/ctc run start",
