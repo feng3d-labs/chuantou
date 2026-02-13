@@ -10,7 +10,10 @@
   <div class="container">
     <div class="header">
       <h1>🔌 feng3d-ctc 穿透客户端</h1>
-      <div class="status running" id="status">运行中</div>
+      <div class="header-actions">
+        <div class="status running" id="status">运行中</div>
+        <button class="btn btn-primary btn-sm" id="reconnectBtn" onclick="manualReconnect()">主动连接</button>
+      </div>
     </div>
 
     <div class="grid">

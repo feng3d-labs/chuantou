@@ -142,6 +142,15 @@ async function main(): Promise<void> {
     return await forwardProxy.getClientList();
   };
 
+  // 重连回调
+  const reconnectCallback = async (): Promise<void> => {
+    logger.log('收到手动重连请求');
+    // 先断开现有连接
+    controller.disconnect();
+    // 然后重新连接
+    await controller.connect();
+  };
+
   // 创建管理页面服务器
   const adminServer = new AdminServer(
     adminServerConfig,
@@ -151,7 +160,9 @@ async function main(): Promise<void> {
     addForwardProxyCallback,
     removeForwardProxyCallback,
     registerClientCallback,
-    getClientListCallback
+    getClientListCallback,
+    undefined, // sendMessage 会在后面设置
+    reconnectCallback
   );
 
   // 设置发送消息回调（用于正向穿透向服务端发送消息）

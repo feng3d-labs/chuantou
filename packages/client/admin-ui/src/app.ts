@@ -285,6 +285,38 @@ function showDeleteModal(port: number, type: 'reverse' | 'forward' = 'reverse'):
   document.getElementById('deleteModal')?.classList.add('show');
 }
 
+/**
+ * 手动触发重连到服务器
+ */
+async function manualReconnect(): Promise<void> {
+  const reconnectBtn = document.getElementById('reconnectBtn') as HTMLButtonElement;
+  if (!reconnectBtn) return;
+
+  // 禁用按钮并显示加载状态
+  reconnectBtn.disabled = true;
+  const originalText = reconnectBtn.textContent;
+  reconnectBtn.textContent = '连接中...';
+
+  try {
+    const res = await fetch('/_ctc/reconnect', { method: 'POST' });
+    const data = await res.json();
+
+    if (data.success) {
+      showToast(data.message || '正在重连...', 'success');
+      // 等待一下后更新状态
+      setTimeout(() => updateStatus(), 1000);
+    } else {
+      showToast(`重连失败: ${data.error}`, 'error');
+    }
+  } catch (e) {
+    showToast('重连请求失败: 网络错误', 'error');
+  } finally {
+    // 恢复按钮状态
+    reconnectBtn.disabled = false;
+    reconnectBtn.textContent = originalText;
+  }
+}
+
 async function confirmDelete(): Promise<void> {
   // 关闭模态框
   document.getElementById('deleteModal')?.classList.remove('show');

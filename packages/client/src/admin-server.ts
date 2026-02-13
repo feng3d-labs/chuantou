@@ -72,6 +72,8 @@ export class AdminServer {
   private forwardProxies: Map<string, { localPort: number; targetClientId: string; targetPort: number }> = new Map();
   /** 发送消息到服务端的回调（用于正向穿透操作） */
   private sendMessageCallback?: (message: any) => Promise<any>;
+  /** 触发重连的回调函数 */
+  private reconnectCallback?: () => Promise<void>;
   /** 添加正向穿透代理回调函数 */
   private addForwardProxyCallback?: (entry: ForwardProxyEntry) => Promise<void>;
   /** 删除正向穿透代理回调函数 */
@@ -102,6 +104,7 @@ export class AdminServer {
    * @param removeForwardProxy - 删除正向穿透的回调函数
    * @param registerClient - 注册客户端的回调函数
    * @param getClientList - 获取客户端列表的回调函数
+   * @param reconnect - 触发重连的回调函数
    */
   constructor(
     config: AdminServerConfig,
@@ -112,7 +115,8 @@ export class AdminServer {
     removeForwardProxy?: (localPort: number) => Promise<void>,
     registerClient?: (description?: string) => Promise<void>,
     getClientList?: () => Promise<any>,
-    sendMessage?: (message: any) => Promise<any>
+    sendMessage?: (message: any) => Promise<any>,
+    reconnect?: () => Promise<void>
   ) {
     this.port = config.port;
     this.host = config.host;
@@ -125,6 +129,7 @@ export class AdminServer {
     this.registerClientCallback = registerClient;
     this.getClientListCallback = getClientList;
     this.sendMessageCallback = sendMessage;
+    this.reconnectCallback = reconnect;
 
     this.server = createServer((req, res) => this.handleRequest(req, res));
   }
@@ -134,6 +139,13 @@ export class AdminServer {
    */
   setSendMessageCallback(callback: (message: any) => Promise<any>): void {
     this.sendMessageCallback = callback;
+  }
+
+  /**
+   * 设置重连回调
+   */
+  setReconnectCallback(callback: () => Promise<void>): void {
+    this.reconnectCallback = callback;
   }
 
   /**
@@ -386,6 +398,26 @@ export class AdminServer {
           res.end(JSON.stringify({ error: errorMessage }));
         }
       });
+      return;
+    }
+
+    // reconnect - 主动重连到服务器
+    if (url === '/_ctc/reconnect' && req.method === 'POST') {
+      if (!this.reconnectCallback) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '重连服务未就绪' }));
+        return;
+      }
+
+      try {
+        await this.reconnectCallback();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: '正在重连...' }));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: errorMessage }));
+      }
       return;
     }
 
