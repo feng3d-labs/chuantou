@@ -36,8 +36,8 @@
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "version": "node scripts/set-version.js",
-    "clean": "pnpm -r run clean"
-  },
+    "clean": "node scripts/clean.js",
+    "dev": "node scripts/clean.js"
   "author": "",
   "license": "ISC",
   "repository": {
