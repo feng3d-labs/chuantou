@@ -86,7 +86,7 @@ export class AdminServer {
   /**
    * 静态文件路径常量
    */
-  private static readonly STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', '..', 'admin-ui', 'dist');
+  private static readonly STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'admin-ui', 'dist');
 
   /**
    * HTML 模板文件路径

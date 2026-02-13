@@ -80,7 +80,7 @@ async function main(): Promise<void> {
   }
 
   // 创建管理页面服务器
-  const adminServerConfig = { port: 9001, host: '127.0.0.1' };
+  const adminServerConfig = { port: config.adminPort, host: '127.0.0.1' };
 
   // 获取状态回调
   const getStatusCallback = (): ClientStatus => {

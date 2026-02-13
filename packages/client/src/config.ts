@@ -69,12 +69,13 @@ function parseProxies(proxiesStr: string): ProxyConfig[] {
  * - `--server <url>` - 服务器地址
  * - `--token <token>` - 认证令牌
  * - `--proxies <proxies>` - 代理配置字符串
+ * - `--admin-port <port>` - 管理页面端口
  *
  * @returns 解析后的命令行参数对象，未指定的参数值为 `undefined`
  */
-function parseArgs(): { config?: string; server?: string; token?: string; proxies?: string } {
+function parseArgs(): { config?: string; server?: string; token?: string; proxies?: string; adminPort?: string } {
   const args = process.argv.slice(2);
-  const result: { config?: string; server?: string; token?: string; proxies?: string } = {};
+  const result: { config?: string; server?: string; token?: string; proxies?: string; adminPort?: string } = {};
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -86,6 +87,8 @@ function parseArgs(): { config?: string; server?: string; token?: string; proxie
       result.token = args[++i];
     } else if (arg === '--proxies' && i + 1 < args.length) {
       result.proxies = args[++i];
+    } else if (arg === '--admin-port' && i + 1 < args.length) {
+      result.adminPort = args[++i];
     }
   }
 
@@ -119,9 +122,9 @@ async function loadFromFile(configPath: string): Promise<Partial<ClientConfig>> 
  *
  * @returns 合并后的完整客户端配置对象
  */
-async function loadConfig(): Promise<ClientConfig> {
+async function loadConfig(): Promise<ClientConfig & { adminPort?: number }> {
   const args = parseArgs();
-  let config: ClientConfig = {
+  let config: ClientConfig & { adminPort?: number } = {
     serverUrl: 'ws://localhost:9000',
     token: '',
     reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
@@ -129,6 +132,7 @@ async function loadConfig(): Promise<ClientConfig> {
     proxies: [
       { remotePort: 8080, localPort: 3000, localHost: 'localhost' },
     ],
+    adminPort: 9001,
   };
 
   // 1. 从配置文件加载
@@ -140,6 +144,7 @@ async function loadConfig(): Promise<ClientConfig> {
   if (args.server) config.serverUrl = args.server;
   if (args.token) config.token = args.token;
   if (args.proxies) config.proxies = parseProxies(args.proxies);
+  if (args.adminPort) config.adminPort = parseInt(args.adminPort, 10);
 
   return config;
 }
@@ -173,17 +178,21 @@ export class Config implements ClientConfig {
   /** 代理隧道配置列表 */
   proxies: ProxyConfig[];
 
+  /** 管理页面端口 */
+  adminPort: number;
+
   /**
    * 创建配置实例。
    *
    * @param data - 客户端配置数据对象
    */
-  constructor(data: ClientConfig) {
+  constructor(data: ClientConfig & { adminPort?: number }) {
     this.serverUrl = data.serverUrl;
     this.token = data.token;
     this.reconnectInterval = data.reconnectInterval;
     this.maxReconnectAttempts = data.maxReconnectAttempts;
     this.proxies = data.proxies;
+    this.adminPort = data.adminPort ?? 9001;
   }
 
   /**

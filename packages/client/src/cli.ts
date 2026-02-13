@@ -54,8 +54,10 @@ const CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
-/** 管理服务器 URL */
+/** 管理服务器 URL 默认值 */
 const ADMIN_URL_DEFAULT = 'http://127.0.0.1:9001';
+/** 管理服务器端口默认值 */
+const ADMIN_PORT_DEFAULT = 9001;
 
 /**
  * 帮助文本
@@ -220,9 +222,9 @@ function isClientRunning(): boolean {
 /**
  * 获取客户端状态
  */
-async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
+async function getClientStatus(adminPort: number = ADMIN_PORT_DEFAULT): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
   try {
-    const res = await fetch(`${ADMIN_URL}/_ctc/status`, { method: 'GET' });
+    const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/status`, { method: 'GET' });
     if (!res.ok) return null;
     const data = await res.json() as { proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number };
     return data;
@@ -302,7 +304,8 @@ const startCmd = program.command('start')
     const serveArgs = ['--config', CONFIG_FILE];
     if (serverUrl) serveArgs.push('--server', serverUrl);
     if (token) serveArgs.push('--token', token);
-    if (adminPort) serveArgs.push('--admin-port', adminPort.toString());
+    const adminPort = options.adminPort ? parseInt(options.adminPort, 10) : ADMIN_PORT_DEFAULT;
+    serveArgs.push('--admin-port', adminPort.toString());
 
     // 打开日志文件
     const logFd = openSync(LOG_FILE, 'a');
@@ -329,6 +332,7 @@ const startCmd = program.command('start')
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  PID: ${child.pid}`));
     console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`  管理页面: http://127.0.0.1:${adminPort}`));
     console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
     console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
@@ -350,7 +354,7 @@ const startCmd = program.command('start')
     // 打开管理页面
     if (options.open) {
       setTimeout(() => {
-        const adminPage = 'http://127.0.0.1:9001';
+        const adminPage = `http://127.0.0.1:${adminPort}`;
         console.log(chalk.gray(`打开管理页面: ${adminPage}`));
         const openCmd = platform() === 'win32' ? 'start' : 'open';
         execSync(`${openCmd} ${adminPage}`, { stdio: 'ignore' });
@@ -446,7 +450,7 @@ const statusCmd = program.command('status')
     console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 
     // 获取详细状态
-    const status = await getClientStatus();
+    const status = await getClientStatus(info.adminPort);
     if (status) {
       const uptime = Math.floor(status.uptime / 1000);
       const minutes = Math.floor(uptime / 60);
@@ -539,7 +543,9 @@ proxiesCmd.command('add')
 
     // 通过 API 添加
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -586,7 +592,9 @@ proxiesCmd.command('remove')
 
     // 通过 API 删除
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies/${port}`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies/${port}`, {
         method: 'DELETE',
       });
 
@@ -618,7 +626,9 @@ proxiesCmd.command('clear')
   .description('清空所有代理映射')
   .action(async () => {
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies`, {
         method: 'DELETE',
       });
 
@@ -763,7 +773,9 @@ forwardCmd.command('list')
   .description('列出所有正向穿透代理')
   .action(async () => {
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/forward/list`);
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/list`);
       if (!res.ok) {
         console.log(chalk.yellow('无法获取代理列表（客户端未运行或功能不可用）'));
         return;
@@ -816,7 +828,9 @@ forwardCmd.command('add')
     }
 
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/forward/add`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ localPort, targetClientId, targetPort }),
@@ -848,7 +862,9 @@ forwardCmd.command('remove')
     }
 
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/forward/remove`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/remove`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ localPort: port }),
@@ -870,7 +886,9 @@ forwardCmd.command('clients')
   .description('查看在线客户端列表')
   .action(async () => {
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/forward/clients`);
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/clients`);
       if (!res.ok) {
         console.log(chalk.yellow('无法获取客户端列表'));
         return;
@@ -899,7 +917,9 @@ forwardCmd.command('register')
   .option('-d, --description <desc>', '客户端描述')
   .action(async (options) => {
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/forward/register`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: options.description || '' }),
@@ -1048,7 +1068,9 @@ const logsCmd = program.command('logs')
 const openCmd = program.command('open')
   .description('在浏览器中打开管理页面')
   .action(async () => {
-    const adminPage = 'http://127.0.0.1:9001';
+    const info = readPidFile();
+    const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+    const adminPage = `http://127.0.0.1:${adminPort}`;
     const openCmd = platform() === 'win32' ? 'start' : 'open';
     console.log(chalk.gray(`打开管理页面: ${adminPage}`));
     try {
