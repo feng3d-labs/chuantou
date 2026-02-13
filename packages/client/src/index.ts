@@ -16,6 +16,8 @@ import { IpcHandler } from './ipc-handler.js';
 import { ProxyConfig, ProxyConfigWithIndex, logger } from '@feng3d/chuantou-shared';
 import { join } from 'path';
 import { homedir } from 'os';
+import { ForwardProxy } from './forward-proxy.js';
+import type { ForwardProxyEntry } from '@feng3d/chuantou-shared';
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -67,6 +69,9 @@ async function main(): Promise<void> {
   // 创建代理管理器
   const proxyManager = new ProxyManager(controller);
 
+  // 创建正向穿透代理
+  const forwardProxy = new ForwardProxy(controller);
+
   // 已注册的代理配置列表（用于管理页面）
   const registeredProxies: ProxyConfigWithIndex[] = [];
   let nextProxyIndex = 1;
@@ -75,10 +80,11 @@ async function main(): Promise<void> {
   }
 
   // 创建管理页面服务器
-  const adminServer = new AdminServer(
-    { port: 9001, host: '127.0.0.1' },
-    // 获取状态回调
-    (): ClientStatus => ({
+  const adminServerConfig = { port: 9001, host: '127.0.0.1' };
+
+  // 获取状态回调
+  const getStatusCallback = (): ClientStatus => {
+    const status: ClientStatus = {
       running: true,
       serverUrl: config.serverUrl,
       connected: controller.isConnected(),
@@ -86,25 +92,72 @@ async function main(): Promise<void> {
       uptime: Date.now() - startTime,
       proxies: registeredProxies.map(p => ({ ...p })),
       reconnectAttempts: controller.getReconnectAttempts(),
-    }),
-    // 添加代理回调
-    async (proxy: ProxyConfig): Promise<void> => {
-      await proxyManager.registerProxy(proxy);
-      registeredProxies.push({ ...proxy, index: nextProxyIndex++ });
-    },
-    // 删除代理回调
-    async (remotePort: number): Promise<void> => {
-      await proxyManager.unregisterProxy(remotePort);
-      const index = registeredProxies.findIndex(p => p.remotePort === remotePort);
-      if (index !== -1) {
-        registeredProxies.splice(index, 1);
-      }
-    },
-    // 发送消息回调（用于正向穿透）
-    async (message: any) => {
-      return await controller.sendRequest(message);
+    };
+
+    // 添加正向穿透相关信息
+    try {
+      const forwardProxies = forwardProxy.getProxies();
+      status.forwardProxies = forwardProxies;
+      status.isRegistered = true; // 假设已注册（实际应从 Controller 获取）
+      status.clientId = controller.getClientId();
+    } catch (e) {
+      // 如果获取失败，返回基础状态
     }
+
+    return status;
+  };
+
+  // 添加代理回调
+  const addProxyCallback = async (proxy: ProxyConfig): Promise<void> => {
+    await proxyManager.registerProxy(proxy);
+    registeredProxies.push({ ...proxy, index: nextProxyIndex++ });
+  };
+
+  // 删除代理回调
+  const removeProxyCallback = async (remotePort: number): Promise<void> => {
+    await proxyManager.unregisterProxy(remotePort);
+    const index = registeredProxies.findIndex(p => p.remotePort === remotePort);
+    if (index !== -1) {
+      registeredProxies.splice(index, 1);
+    }
+  };
+
+  // 添加正向穿透回调
+  const addForwardProxyCallback = async (entry: ForwardProxyEntry): Promise<void> => {
+    await forwardProxy.addProxy(entry);
+  };
+
+  // 删除正向穿透回调
+  const removeForwardProxyCallback = async (localPort: number): Promise<void> => {
+    await forwardProxy.removeProxy(localPort);
+  };
+
+  // 注册客户端回调
+  const registerClientCallback = async (description?: string): Promise<void> => {
+    return await forwardProxy.registerAsClient(description);
+  };
+
+  // 获取客户端列表回调
+  const getClientListCallback = async (): Promise<any> => {
+    return await forwardProxy.getClientList();
+  };
+
+  // 创建管理页面服务器
+  const adminServer = new AdminServer(
+    adminServerConfig,
+    getStatusCallback,
+    addProxyCallback,
+    removeProxyCallback,
+    addForwardProxyCallback,
+    removeForwardProxyCallback,
+    registerClientCallback,
+    getClientListCallback
   );
+
+  // 设置发送消息回调（用于正向穿透向服务端发送消息）
+  adminServer.setSendMessageCallback(async (message: any) => {
+    return await controller.sendRequest(message);
+  });
 
   // 监听控制器事件
   controller.on('connected', () => {

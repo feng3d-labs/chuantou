@@ -172,6 +172,22 @@ export interface ForwardProxyConfig {
 }
 
 /**
+ * 正向穿透代理条目接口
+ *
+ * 描述单个正向穿透代理条目的配置信息。
+ */
+export interface ForwardProxyEntry {
+  /** 本地监听端口 */
+  localPort: number;
+  /** 目标客户端 ID */
+  targetClientId: string;
+  /** 目标端口 */
+  targetPort: number;
+  /** 是否启用 */
+  enabled: boolean;
+}
+
+/**
  * 带编号的代理配置接口
  *
  * 在 ProxyConfig 基础上添加运行时分配的编号。
