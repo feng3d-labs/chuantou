@@ -30,7 +30,7 @@
     "start:server": "pnpm --filter @feng3d/cts run start",
     "start:client": "pnpm --filter @feng3d/ctc run start",
     "build": "pnpm -r run build",
-    "watch": "pnpm -r --parallel run watch",
+    "watch": "pnpm -r run watch",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
@@ -51,6 +51,6 @@
   },
   "devDependencies": {},
   "dependencies": {
-    "@feng3d/chuantou-shared": "^0.0.11"
+    "@feng3d/chuantou-shared": "workspace:*"
   }
 }

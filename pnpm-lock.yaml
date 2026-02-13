@@ -9,8 +9,8 @@ importers:
   .:
     dependencies:
       '@feng3d/chuantou-shared':
-        specifier: ^0.0.11
-        version: 0.0.11
+        specifier: workspace:*
+        version: link:packages/shared
 
   labs/multi-protocol:
     devDependencies:
@@ -115,6 +115,9 @@ importers:
 
   packages/shared:
     devDependencies:
+      '@types/node':
+        specifier: ^20.10.0
+        version: 20.19.33
       typescript:
         specifier: ^5.3.3
         version: 5.9.3
