@@ -61,6 +61,10 @@ export enum MessageType {
   REJECT_CONNECTION = 'reject_connection',
   /** 服务端通知连接已建立 */
   CONNECTION_ESTABLISHED = 'connection_established',
+  /** 服务端请求目标客户端连接到指定端口 */
+  PROXY_TARGET_PORT = 'proxy_target_port',
+  /** 目标客户端确认已连接到目标端口 */
+  TARGET_PORT_CONNECTED = 'target_port_connected',
 }
 
 /**
@@ -409,6 +413,34 @@ export interface ConnectionEstablishedMessage extends Message {
 }
 
 /**
+ * 代理目标端口消息
+ *
+ * 服务端请求目标客户端连接到其本地指定端口。
+ */
+export interface ProxyTargetPortMessage extends Message {
+  type: MessageType.PROXY_TARGET_PORT;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+    /** 目标端口 */
+    targetPort: number;
+  };
+}
+
+/**
+ * 目标端口已连接消息
+ *
+ * 目标客户端确认已成功连接到目标端口。
+ */
+export interface TargetPortConnectedMessage extends Message {
+  type: MessageType.TARGET_PORT_CONNECTED;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+  };
+}
+
+/**
  * 所有消息类型的联合类型
  */
 export type AnyMessage =
@@ -430,7 +462,9 @@ export type AnyMessage =
   | IncomingConnectionMessage
   | AcceptConnectionMessage
   | RejectConnectionMessage
-  | ConnectionEstablishedMessage;
+  | ConnectionEstablishedMessage
+  | ProxyTargetPortMessage
+  | TargetPortConnectedMessage;
 
 /**
  * 消息类型守卫

@@ -135,10 +135,10 @@ describe('正向穿透模式集成测试', () => {
       // 清理
       forwardProxyA.destroy();
       forwardProxyB.destroy();
-      controllerA.disconnect();
-      controllerB.disconnect();
+      controllerA.destroy();
+      controllerB.destroy();
 
-      await sleep(200);
+      await sleep(500);
     }, TEST_TIMEOUT);
   });
 
@@ -194,8 +194,8 @@ describe('正向穿透模式集成测试', () => {
     afterEach(async () => {
       forwardProxyA?.destroy();
       forwardProxyB?.destroy();
-      controllerA?.disconnect();
-      controllerB?.disconnect();
+      controllerA?.destroy();
+      controllerB?.destroy();
 
       if (testServerB) {
         await new Promise<void>((resolve) => {
@@ -203,7 +203,7 @@ describe('正向穿透模式集成测试', () => {
         });
       }
 
-      await sleep(200);
+      await sleep(500);
     });
 
     it('应该能够获取在线客户端列表', async () => {
@@ -309,8 +309,8 @@ describe('正向穿透模式集成测试', () => {
     afterEach(async () => {
       forwardProxyA?.destroy();
       forwardProxyB?.destroy();
-      controllerA?.disconnect();
-      controllerB?.disconnect();
+      controllerA?.destroy();
+      controllerB?.destroy();
 
       if (testServerB) {
         await new Promise<void>((resolve) => {
@@ -318,7 +318,7 @@ describe('正向穿透模式集成测试', () => {
         });
       }
 
-      await sleep(200);
+      await sleep(500);
     });
 
     it('应该能够通过正向代理传输数据', async function () {

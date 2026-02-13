@@ -4,7 +4,7 @@
  * 正向穿透代理模块。
  *
  * 实现从本地端口到远程客户端端口的穿透功能。
- * 用户连接本地端口 → 通过中继服务器 → 连接到目标客户端的指定端口。
+ * 用户连接本地端口 → 通过中继服务器数据通道 → 连接到目标客户端的指定端口。
  */
 
 import { EventEmitter } from 'events';
@@ -21,6 +21,8 @@ import {
   AcceptConnectionMessage,
   ConnectionEstablishedMessage,
   ConnectionErrorMessage,
+  ProxyTargetPortMessage,
+  TargetPortConnectedMessage,
 } from '@feng3d/chuantou-shared';
 import { Controller } from './controller.js';
 
@@ -39,27 +41,34 @@ export interface ForwardProxyEntry {
 }
 
 /**
+ * 会话信息
+ */
+interface ForwardSession {
+  sessionId: string;
+  localPort: number;
+  targetPort: number;
+  targetClientId: string;
+  localSocket?: Socket;
+  targetSocket?: Socket;
+  status: 'pending' | 'connected' | 'closed';
+  role: 'initiator' | 'target'; // initiator: 发起方, target: 目标方
+}
+
+/**
  * 正向穿透代理类
  *
  * 管理从本地端口到远程客户端的穿透映射。
+ * 支持两种角色：
+ * - 发起方: 用户连接本地端口，数据转发到目标客户端
+ * - 目标方: 接受来自其他客户端的连接，转发到本地服务
  */
 export class ForwardProxy extends EventEmitter {
   private controller: Controller;
   private proxies = new Map<number, ForwardProxyEntry>();
   private servers = new Map<number, TcpServer>();
-  private activeConnections = new Map<string, Socket>();
 
-  // 待处理的入站连接 (sessionId -> socket)
-  private pendingConnections = new Map<string, Socket>();
-
-  // 会话信息 (sessionId -> { localPort, targetPort, targetClientId })
-  private sessions = new Map<string, {
-    localPort: number;
-    targetPort: number;
-    targetClientId: string;
-    localSocket?: Socket;
-    relaySocket?: Socket;
-  }>();
+  // 会话信息 (sessionId -> ForwardSession)
+  private sessions = new Map<string, ForwardSession>();
 
   constructor(controller: Controller) {
     super();
@@ -67,22 +76,73 @@ export class ForwardProxy extends EventEmitter {
 
     // 监听控制通道消息
     this.setupMessageHandlers();
+
+    // 监听数据通道消息
+    this.setupDataChannelHandlers();
   }
 
   /**
    * 设置消息处理器
    */
   private setupMessageHandlers(): void {
-    // 监听入站连接请求
+    // 监听控制通道消息
     this.controller.on('controlMessage', (message: any) => {
-      if (message.type === MessageType.INCOMING_CONNECTION) {
-        this.handleIncomingConnection(message as IncomingConnectionMessage);
-      } else if (message.type === MessageType.CONNECTION_ESTABLISHED) {
-        this.handleConnectionEstablished(message as ConnectionEstablishedMessage);
-      } else if (message.type === MessageType.CONNECTION_ERROR) {
-        this.handleConnectionError(message as ConnectionErrorMessage);
+      switch (message.type) {
+        case MessageType.INCOMING_CONNECTION:
+          this.handleIncomingConnection(message as IncomingConnectionMessage);
+          break;
+        case MessageType.CONNECTION_ESTABLISHED:
+          this.handleConnectionEstablished(message as ConnectionEstablishedMessage);
+          break;
+        case MessageType.CONNECTION_ERROR:
+          this.handleConnectionError(message as ConnectionErrorMessage);
+          break;
+        case MessageType.PROXY_TARGET_PORT:
+          this.handleProxyTargetPort(message as ProxyTargetPortMessage);
+          break;
       }
     });
+  }
+
+  /**
+   * 设置数据通道处理器
+   */
+  private setupDataChannelHandlers(): void {
+    const dataChannel = this.controller.getDataChannel();
+
+    // 监听来自服务端的数据帧
+    dataChannel.on('data', (sessionId: string, data: Buffer) => {
+      this.handleDataChannelData(sessionId, data);
+    });
+  }
+
+  /**
+   * 处理数据通道数据
+   */
+  private handleDataChannelData(sessionId: string, data: Buffer): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      logger.warn(`收到未知会话 ${sessionId} 的数据`);
+      return;
+    }
+
+    if (session.status !== 'connected') {
+      logger.warn(`会话 ${sessionId} 未连接，丢弃数据`);
+      return;
+    }
+
+    if (session.role === 'initiator' && session.targetSocket) {
+      // 数据从目标客户端 -> 本地目标端口
+      if (session.targetSocket.writable) {
+        session.targetSocket.write(data);
+      }
+    } else if (session.role === 'target') {
+      // 数据从发起方 -> 本地服务
+      const socket = session.targetSocket;
+      if (socket && socket.writable) {
+        socket.write(data);
+      }
+    }
   }
 
   /**
@@ -226,7 +286,7 @@ export class ForwardProxy extends EventEmitter {
   }
 
   /**
-   * 处理本地连接
+   * 处理本地连接（发起方）
    */
   private async handleLocalConnection(
     localSocket: Socket,
@@ -238,16 +298,17 @@ export class ForwardProxy extends EventEmitter {
 
     logger.log(`本地连接 :${localPort} → 请求连接到 ${targetClientId}:${targetPort} (会话: ${sessionId})`);
 
-    // 保存待处理的连接
-    this.pendingConnections.set(sessionId, localSocket);
-
-    // 保存会话信息
-    this.sessions.set(sessionId, {
+    // 创建会话
+    const session: ForwardSession = {
+      sessionId,
       localPort,
       targetPort,
       targetClientId,
       localSocket,
-    });
+      status: 'pending',
+      role: 'initiator',
+    };
+    this.sessions.set(sessionId, session);
 
     // 向服务端发送连接请求
     try {
@@ -263,12 +324,13 @@ export class ForwardProxy extends EventEmitter {
     } catch (error) {
       logger.error(`发送连接请求失败:`, error);
       localSocket.destroy();
-      this.pendingConnections.delete(sessionId);
       this.sessions.delete(sessionId);
+      return;
     }
 
     // 处理本地连接关闭
     localSocket.on('close', () => {
+      logger.log(`本地连接已关闭: ${sessionId}`);
       this.cleanupSession(sessionId);
     });
 
@@ -276,10 +338,18 @@ export class ForwardProxy extends EventEmitter {
       logger.error(`本地连接错误 (${sessionId}):`, error);
       this.cleanupSession(sessionId);
     });
+
+    // 将本地连接的数据通过数据通道发送
+    localSocket.on('data', (data: Buffer) => {
+      if (session.status === 'connected') {
+        const dataChannel = this.controller.getDataChannel();
+        dataChannel.sendData(sessionId, data);
+      }
+    });
   }
 
   /**
-   * 处理入站连接请求（来自服务端）
+   * 处理入站连接请求（目标方）
    */
   private async handleIncomingConnection(message: IncomingConnectionMessage): Promise<void> {
     const { sessionId, fromClientId, targetPort } = message.payload;
@@ -300,10 +370,10 @@ export class ForwardProxy extends EventEmitter {
   }
 
   /**
-   * 处理连接已建立消息
+   * 处理连接已建立消息（发起方）
    */
   private async handleConnectionEstablished(message: ConnectionEstablishedMessage): Promise<void> {
-    const { sessionId, relayAddr } = message.payload;
+    const { sessionId } = message.payload;
 
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -311,44 +381,90 @@ export class ForwardProxy extends EventEmitter {
       return;
     }
 
-    logger.log(`连接已建立: ${sessionId}，准备建立数据通道`);
+    if (session.role !== 'initiator') {
+      return; // 只处理发起方
+    }
 
-    // 连接到中继服务器的数据通道
-    // 这里通过数据通道建立连接
-    const dataChannel = this.controller.getDataChannel();
+    logger.log(`连接已建立: ${sessionId}`);
 
-    // 创建到中继服务器的 TCP 连接用于数据转发
-    const net = await import('net');
-    const relaySocket = net.createConnection({
-      host: relayAddr.host,
-      port: relayAddr.port,
-    });
+    session.status = 'connected';
 
-    relaySocket.on('connect', () => {
-      logger.log(`中继数据通道已连接: ${sessionId}`);
+    // 开始将本地 socket 数据通过数据通道转发
+    if (session.localSocket) {
+      // 重新绑定数据处理器（因为之前绑定在 pending 状态时不发送）
+      const dataChannel = this.controller.getDataChannel();
 
-      // 发送会话 ID 魔数前缀，标识这个连接属于哪个会话
-      const sessionIdBuffer = Buffer.from(sessionId, 'utf-8');
-      const lengthPrefix = Buffer.alloc(2);
-      lengthPrefix.writeUInt16BE(sessionIdBuffer.length);
-      relaySocket.write(Buffer.concat([lengthPrefix, sessionIdBuffer]));
+      session.localSocket.on('data', (data: Buffer) => {
+        if (session.status === 'connected') {
+          dataChannel.sendData(sessionId, data);
+        }
+      });
+    }
+  }
 
-      // 开始双向转发
-      this.startForwarding(session.localSocket!, relaySocket, sessionId);
-      this.startForwarding(relaySocket, session.localSocket!, sessionId);
+  /**
+   * 处理代理目标端口请求（目标方）
+   */
+  private async handleProxyTargetPort(message: ProxyTargetPortMessage): Promise<void> {
+    const { sessionId, targetPort } = message.payload;
 
-      session.relaySocket = relaySocket;
-    });
+    logger.log(`收到代理目标端口请求: ${sessionId} → :${targetPort}`);
 
-    relaySocket.on('error', (error) => {
-      logger.error(`中继连接错误 (${sessionId}):`, error);
-      this.cleanupSession(sessionId);
-    });
+    // 创建到本地目标端口的连接
+    const targetSocket = new Socket();
 
-    relaySocket.on('close', () => {
-      logger.log(`中继连接已关闭: ${sessionId}`);
-      this.cleanupSession(sessionId);
-    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        targetSocket.on('connect', () => resolve());
+        targetSocket.on('error', reject);
+        targetSocket.connect(targetPort, '127.0.0.1');
+      });
+
+      logger.log(`已连接到本地端口 ${targetPort} (会话: ${sessionId})`);
+
+      // 创建会话
+      const session: ForwardSession = {
+        sessionId,
+        localPort: targetPort,
+        targetPort,
+        targetClientId: '',
+        targetSocket,
+        status: 'connected',
+        role: 'target',
+      };
+      this.sessions.set(sessionId, session);
+
+      // 将目标端口的数据通过数据通道转发
+      targetSocket.on('data', (data: Buffer) => {
+        const dataChannel = this.controller.getDataChannel();
+        dataChannel.sendData(sessionId, data);
+      });
+
+      targetSocket.on('close', () => {
+        logger.log(`目标端口连接已关闭: ${sessionId}`);
+        this.cleanupSession(sessionId);
+      });
+
+      targetSocket.on('error', (error) => {
+        logger.error(`目标端口连接错误 (${sessionId}):`, error);
+        this.cleanupSession(sessionId);
+      });
+
+      // 通知服务端已连接
+      const connectedMessage: TargetPortConnectedMessage = createMessage(MessageType.TARGET_PORT_CONNECTED, {
+        sessionId,
+      });
+      await this.controller.sendRequest<any>(connectedMessage);
+
+    } catch (error) {
+      logger.error(`连接到本地端口 ${targetPort} 失败:`, error);
+      // 发送错误消息
+      const errorMsg = createMessage(MessageType.CONNECTION_ERROR, {
+        connectionId: sessionId,
+        error: `无法连接到本地端口 ${targetPort}`,
+      });
+      await this.controller.sendRequest<any>(errorMsg);
+    }
   }
 
   /**
@@ -359,31 +475,7 @@ export class ForwardProxy extends EventEmitter {
 
     logger.error(`连接错误 (${sessionId}): ${error}`);
 
-    const session = this.sessions.get(sessionId);
-    if (session?.localSocket) {
-      session.localSocket.destroy();
-    }
-
     this.cleanupSession(sessionId);
-  }
-
-  /**
-   * 开始双向转发
-   */
-  private startForwarding(source: Socket, destination: Socket, sessionId: string): void {
-    source.on('data', (data) => {
-      if (destination.writable) {
-        destination.write(data);
-      }
-    });
-
-    source.on('close', () => {
-      destination.end();
-    });
-
-    source.on('error', () => {
-      destination.destroy();
-    });
   }
 
   /**
@@ -395,12 +487,12 @@ export class ForwardProxy extends EventEmitter {
       if (session.localSocket && !session.localSocket.destroyed) {
         session.localSocket.destroy();
       }
-      if (session.relaySocket && !session.relaySocket.destroyed) {
-        session.relaySocket.destroy();
+      if (session.targetSocket && !session.targetSocket.destroyed) {
+        session.targetSocket.destroy();
       }
+      session.status = 'closed';
       this.sessions.delete(sessionId);
     }
-    this.pendingConnections.delete(sessionId);
   }
 
   /**

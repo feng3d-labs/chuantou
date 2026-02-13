@@ -9,6 +9,7 @@
  */
 
 import { WebSocket } from 'ws';
+import { Socket } from 'net';
 import {
   MessageType,
   createMessage,
@@ -26,6 +27,7 @@ import {
 } from '@feng3d/chuantou-shared';
 import { SessionManager } from '../session-manager.js';
 import { UnifiedProxyHandler } from './unified-proxy.js';
+import { DataChannelManager } from '../data-channel.js';
 
 /**
  * 正向穿透会话信息
@@ -36,7 +38,9 @@ interface ForwardSession {
   toClientId: string;
   targetPort: number;
   createdAt: number;
-  status: 'pending' | 'accepted' | 'rejected' | 'closed';
+  status: 'pending' | 'accepted' | 'rejected' | 'closed' | 'connected';
+  /** 桥接器引用（用于清理） */
+  bridge?: ForwardBridge;
 }
 
 /**
@@ -51,6 +55,112 @@ interface RegisteredClient {
 }
 
 /**
+ * 正向穿透桥接器
+ *
+ * 在两个客户端的数据通道之间建立双向数据转发。
+ * 当客户端A请求连接客户端B的某个端口时，服务端创建此桥接器。
+ */
+class ForwardBridge {
+  private sessionId: string;
+  private fromClientId: string;
+  private toClientId: string;
+  private targetPort: number;
+  private dataChannelManager: DataChannelManager;
+  private controlHandler: ControlHandler;
+
+  // 连接到目标客户端本地端口的 socket
+  private targetSocket?: Socket;
+
+  constructor(
+    sessionId: string,
+    fromClientId: string,
+    toClientId: string,
+    targetPort: number,
+    dataChannelManager: DataChannelManager,
+    controlHandler: ControlHandler,
+  ) {
+    this.sessionId = sessionId;
+    this.fromClientId = fromClientId;
+    this.toClientId = toClientId;
+    this.targetPort = targetPort;
+    this.dataChannelManager = dataChannelManager;
+    this.controlHandler = controlHandler;
+  }
+
+  /**
+   * 启动桥接
+   *
+   * 通知目标客户端建立到目标端口的连接，然后开始双向转发。
+   */
+  async start(): Promise<void> {
+    // 通知目标客户端接受连接并建立到目标端口的连接
+    const targetClient = this.controlHandler.getRegisteredClient(this.toClientId);
+    if (!targetClient) {
+      logger.error(`目标客户端 ${this.toClientId} 不存在`);
+      return;
+    }
+
+    // 发送 PROXY_TARGET_PORT 消息给目标客户端，要求其连接目标端口
+    const proxyTargetMsg = createMessage(MessageType.PROXY_TARGET_PORT, {
+      sessionId: this.sessionId,
+      targetPort: this.targetPort,
+    });
+
+    targetClient.socket.send(JSON.stringify(proxyTargetMsg));
+    logger.log(`已通知客户端 ${this.toClientId} 连接到端口 ${this.targetPort} (会话: ${this.sessionId})`);
+
+    // 等待目标客户端确认连接
+    // 实际的连接建立由 handleTargetPortConnected 处理
+  }
+
+  /**
+   * 目标客户端已连接到目标端口
+   *
+   * 开始双向数据转发。
+   */
+  onTargetConnected(): void {
+    logger.log(`目标客户端 ${this.toClientId} 已连接到端口 ${this.targetPort}，开始数据转发 (会话: ${this.sessionId})`);
+
+    // 发送连接建立消息给发起方
+    const fromClient = this.controlHandler.getRegisteredClient(this.fromClientId);
+    if (fromClient && fromClient.socket.readyState === WebSocket.OPEN) {
+      const establishedMsg = createMessage(MessageType.CONNECTION_ESTABLISHED, {
+        sessionId: this.sessionId,
+        relayAddr: {
+          host: '', // 不需要，直接通过数据通道转发
+          port: 0,
+        },
+      });
+      fromClient.socket.send(JSON.stringify(establishedMsg));
+    }
+  }
+
+  /**
+   * 转发数据从客户端A到客户端B
+   */
+  forwardFromSource(data: Buffer): boolean {
+    return this.dataChannelManager.sendToClient(this.toClientId, this.sessionId, data);
+  }
+
+  /**
+   * 转发数据从客户端B到客户端A
+   */
+  forwardFromTarget(data: Buffer): boolean {
+    return this.dataChannelManager.sendToClient(this.fromClientId, this.sessionId, data);
+  }
+
+  /**
+   * 清理桥接
+   */
+  destroy(): void {
+    if (this.targetSocket && !this.targetSocket.destroyed) {
+      this.targetSocket.destroy();
+    }
+    logger.log(`桥接已销毁: ${this.sessionId}`);
+  }
+}
+
+/**
  * 控制通道处理器
  *
  * 处理客户端通过 WebSocket 控制通道发送的控制消息：
@@ -62,11 +172,13 @@ interface RegisteredClient {
  * - 获取客户端列表（GET_CLIENT_LIST）
  * - 连接请求（CONNECT_REQUEST）
  * - 接受/拒绝连接（ACCEPT_CONNECTION / REJECT_CONNECTION）
+ * - 目标端口连接确认（TARGET_PORT_CONNECTED）- 正向穿透数据通道
  */
 export class ControlHandler {
   private sessionManager: SessionManager;
   private config: ServerConfig;
   private proxyHandler: UnifiedProxyHandler;
+  private dataChannelManager: DataChannelManager;
 
   // 正向穿透模式：注册的客户端映射
   private registeredClients = new Map<string, RegisteredClient>();
@@ -78,10 +190,37 @@ export class ControlHandler {
     sessionManager: SessionManager,
     config: ServerConfig,
     proxyHandler: UnifiedProxyHandler,
+    dataChannelManager: DataChannelManager,
   ) {
     this.sessionManager = sessionManager;
     this.config = config;
     this.proxyHandler = proxyHandler;
+    this.dataChannelManager = dataChannelManager;
+
+    // 监听数据通道事件，处理正向穿透数据转发
+    this.setupDataChannelForwarding();
+  }
+
+  /**
+   * 设置数据通道转发
+   *
+   * 监听数据通道的数据事件，在正向穿透会话的两个客户端之间转发数据。
+   */
+  private setupDataChannelForwarding(): void {
+    this.dataChannelManager.on('data', (clientId: string, connectionId: string, data: Buffer) => {
+      // 检查是否为正向穿透会话
+      const session = this.forwardSessions.get(connectionId);
+      if (session && session.status === 'connected' && session.bridge) {
+        // 确定数据来源方向
+        if (clientId === session.fromClientId) {
+          // 从发起方到目标方
+          session.bridge.forwardFromSource(data);
+        } else if (clientId === session.toClientId) {
+          // 从目标方到发起方
+          session.bridge.forwardFromTarget(data);
+        }
+      }
+    });
   }
 
   /**
@@ -159,7 +298,7 @@ export class ControlHandler {
           break;
 
         case MessageType.GET_CLIENT_LIST:
-          await this.handleGetClientList(clientId, socket);
+          await this.handleGetClientList(clientId, socket, message);
           break;
 
         case MessageType.CONNECT_REQUEST:
@@ -172,6 +311,10 @@ export class ControlHandler {
 
         case MessageType.REJECT_CONNECTION:
           await this.handleRejectConnection(clientId, socket, message as RejectConnectionMessage);
+          break;
+
+        case MessageType.TARGET_PORT_CONNECTED:
+          await this.handleTargetPortConnected(clientId, socket, message);
           break;
 
         default:
@@ -359,7 +502,7 @@ export class ControlHandler {
   /**
    * 处理获取客户端列表请求
    */
-  private async handleGetClientList(clientId: string, socket: WebSocket): Promise<void> {
+  private async handleGetClientList(clientId: string, socket: WebSocket, requestMessage: any): Promise<void> {
     const clients = Array.from(this.registeredClients.values()).map(c => ({
       id: c.id,
       description: c.description,
@@ -369,7 +512,7 @@ export class ControlHandler {
 
     this.sendMessage(socket, createMessage(MessageType.CLIENT_LIST, {
       clients,
-    }));
+    }, requestMessage.id));
     logger.log(`发送客户端列表给 ${clientId}，共 ${clients.length} 个客户端`);
   }
 
@@ -447,27 +590,50 @@ export class ControlHandler {
 
     session.status = 'accepted';
 
-    // 通知双方连接已建立
-    const fromClient = this.registeredClients.get(session.fromClientId);
-    if (fromClient && fromClient.socket.readyState === WebSocket.OPEN) {
-      this.sendMessage(fromClient.socket, createMessage(MessageType.CONNECTION_ESTABLISHED, {
-        sessionId,
-        relayAddr: {
-          host: this.config.host,
-          port: this.config.controlPort,
-        },
-      }));
+    // 创建桥接器
+    const bridge = new ForwardBridge(
+      sessionId,
+      session.fromClientId,
+      session.toClientId,
+      session.targetPort,
+      this.dataChannelManager,
+      this,
+    );
+    session.bridge = bridge;
+
+    // 启动桥接
+    await bridge.start();
+
+    logger.log(`会话 ${sessionId} 已被 ${clientId} 接受，桥接器已创建`);
+  }
+
+  /**
+   * 处理目标端口已连接消息
+   *
+   * 当目标客户端成功连接到目标端口后，发送此消息确认。
+   */
+  private async handleTargetPortConnected(clientId: string, socket: WebSocket, message: any): Promise<void> {
+    const { sessionId } = message.payload;
+
+    const session = this.forwardSessions.get(sessionId);
+    if (!session) {
+      logger.warn(`会话 ${sessionId} 不存在`);
+      return;
     }
 
-    this.sendMessage(socket, createMessage(MessageType.CONNECTION_ESTABLISHED, {
-      sessionId,
-      relayAddr: {
-        host: this.config.host,
-        port: this.config.controlPort,
-      },
-    }));
+    if (session.toClientId !== clientId) {
+      logger.warn(`客户端 ${clientId} 无权确认会话 ${sessionId}`);
+      return;
+    }
 
-    logger.log(`会话 ${sessionId} 已被 ${clientId} 接受`);
+    session.status = 'connected';
+
+    // 通知桥接器目标已连接
+    if (session.bridge) {
+      session.bridge.onTargetConnected();
+    }
+
+    logger.log(`会话 ${sessionId}: 目标端口 ${session.targetPort} 已连接`);
   }
 
   /**
@@ -500,7 +666,10 @@ export class ControlHandler {
 
     logger.log(`会话 ${sessionId} 被 ${clientId} 拒绝: ${reason || '无原因'}`);
 
-    // 清理会话
+    // 清理会话和桥接器
+    if (session.bridge) {
+      session.bridge.destroy();
+    }
     this.forwardSessions.delete(sessionId);
   }
 
@@ -529,9 +698,12 @@ export class ControlHandler {
     // 清理正向穿透注册
     this.registeredClients.delete(clientId);
 
-    // 清理相关的会话
+    // 清理相关的会话和桥接器
     for (const [sessionId, session] of this.forwardSessions) {
       if (session.fromClientId === clientId || session.toClientId === clientId) {
+        if (session.bridge) {
+          session.bridge.destroy();
+        }
         this.forwardSessions.delete(sessionId);
       }
     }

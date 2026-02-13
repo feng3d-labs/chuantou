@@ -202,6 +202,7 @@ export class ForwardServer {
       this.sessionManager,
       this.config,
       this.proxyHandler,
+      this.dataChannelManager,
     );
     this.controlServer = new WebSocketServer({ noServer: true });
   }
