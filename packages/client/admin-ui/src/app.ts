@@ -13,6 +13,8 @@ let selectedClientId = ''; // 正向穿透选中的目标客户端
 
 // 代理连接状态映射：remotePort -> 'testing' | 'connected' | 'failed' | 'unknown'
 const proxyTestStatus = new Map<number, 'testing' | 'connected' | 'failed' | 'unknown'>();
+// 自动测试定时器
+let autoTestInterval: ReturnType<typeof setInterval> | null = null;
 
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
@@ -32,6 +34,56 @@ function showToast(message: string, type: 'success' | 'error' = 'success'): void
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
+// 测试所有反向代理连接状态
+async function testAllProxyConnections(): Promise<void> {
+  try {
+    const statusRes = await fetch('/_ctc/status');
+    const statusData = await statusRes.json();
+    const proxies = statusData.proxies || [];
+
+    if (proxies.length === 0) {
+      return;
+    }
+
+    // 先将所有代理状态设为 testing
+    for (const p of proxies) {
+      proxyTestStatus.set(p.remotePort, 'testing');
+    }
+    updateStatus();
+
+    // 逐个测试每个代理
+    const testPromises = proxies.map(async (p: any) => {
+      const port = p.remotePort;
+
+      try {
+        const testRes = await fetch(`/_ctc/test-proxy?port=${port}`, {
+          method: 'POST'
+        });
+
+        if (testRes.ok) {
+          const result = await testRes.json();
+          if (result.success) {
+            proxyTestStatus.set(port, 'connected');
+          } else {
+            proxyTestStatus.set(port, 'failed');
+          }
+        } else {
+          proxyTestStatus.set(port, 'failed');
+        }
+      } catch (e) {
+        proxyTestStatus.set(port, 'failed');
+      }
+
+      // 更新单个代理状态后刷新显示
+      updateStatus();
+    });
+
+    await Promise.all(testPromises);
+  } catch (e) {
+    console.error('测试代理连接失败:', e);
+  }
+}
+
 function switchTab(tab: any): void {
   currentTab = tab;
 
@@ -49,6 +101,32 @@ function switchTab(tab: any): void {
   document.getElementById('reversePanel')?.classList.toggle('hidden', tab !== 'reverse');
   document.getElementById('forwardPanel')?.classList.toggle('hidden', tab !== 'forward');
   document.getElementById('guidePanel')?.classList.toggle('hidden', tab !== 'guide');
+
+  // 切换到反向代理面板时，立即执行一次测试
+  if (tab === 'reverse') {
+    testAllProxyConnections();
+  }
+}
+
+// 启动自动测试（每10秒）
+function startAutoTest(): void {
+  if (autoTestInterval) {
+    clearInterval(autoTestInterval);
+  }
+  autoTestInterval = setInterval(() => {
+    // 只有在反向代理面板激活时才自动测试
+    if (currentTab === 'reverse') {
+      testAllProxyConnections();
+    }
+  }, 10000);
+}
+
+// 停止自动测试
+function stopAutoTest(): void {
+  if (autoTestInterval) {
+    clearInterval(autoTestInterval);
+    autoTestInterval = null;
+  }
 }
 
 async function updateStatus(): Promise<void> {
@@ -391,26 +469,22 @@ function initReverseProxy(): void {
     addForm?.classList.remove('show');
   });
 
-  // 测试反向代理连接
-  testReverseProxyBtn?.addEventListener('click', async () => {
-    // 获取当前已注册的代理列表
+  // 测试所有反向代理连接状态
+  async function testAllProxyConnections(): Promise<void> {
     try {
       const statusRes = await fetch('/_ctc/status');
       const statusData = await statusRes.json();
       const proxies = statusData.proxies || [];
 
       if (proxies.length === 0) {
-        showToast('请先添加反向代理', 'error');
         return;
       }
-
-      showToast(`正在测试 ${proxies.length} 个反向代理...`);
 
       // 先将所有代理状态设为 testing
       for (const p of proxies) {
         proxyTestStatus.set(p.remotePort, 'testing');
       }
-      updateStatus(); // 刷新显示
+      updateStatus();
 
       // 逐个测试每个代理
       const testPromises = proxies.map(async (p: any) => {
@@ -440,6 +514,46 @@ function initReverseProxy(): void {
       });
 
       await Promise.all(testPromises);
+    } catch (e) {
+      console.error('测试代理连接失败:', e);
+    }
+  }
+
+  // 启动自动测试（每10秒）
+  function startAutoTest(): void {
+    if (autoTestInterval) {
+      clearInterval(autoTestInterval);
+    }
+    autoTestInterval = setInterval(() => {
+      // 只有在反向代理面板激活时才自动测试
+      if (currentTab === 'reverse') {
+        testAllProxyConnections();
+      }
+    }, 10000);
+  }
+
+  // 停止自动测试
+  function stopAutoTest(): void {
+    if (autoTestInterval) {
+      clearInterval(autoTestInterval);
+      autoTestInterval = null;
+    }
+  }
+
+  // 测试反向代理连接（手动触发）
+  testReverseProxyBtn?.addEventListener('click', async () => {
+    try {
+      const statusRes = await fetch('/_ctc/status');
+      const statusData = await statusRes.json();
+      const proxies = statusData.proxies || [];
+
+      if (proxies.length === 0) {
+        showToast('请先添加反向代理', 'error');
+        return;
+      }
+
+      showToast(`正在测试 ${proxies.length} 个反向代理...`);
+      await testAllProxyConnections();
 
       // 统计结果
       const connected = Array.from(proxyTestStatus.values()).filter(s => s === 'connected').length;
@@ -619,6 +733,9 @@ function init(): void {
   // 初始化状态更新
   updateStatus();
   setInterval(updateStatus, 3000);
+
+  // 启动自动测试（每10秒）
+  startAutoTest();
 
   // 如果在正向穿透标签页，自动加载客户端列表
   if (currentTab === 'forward') {
