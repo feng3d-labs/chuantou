@@ -333,6 +333,42 @@ body {
   color: #888;
 }
 
+/* 代理连接状态指示器 */
+.proxy-status {
+  padding: 4px 10px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: bold;
+  min-width: 32px;
+  text-align: center;
+}
+
+.proxy-status.status-unknown {
+  background: rgba(136, 136, 136, 0.2);
+  color: #888;
+}
+
+.proxy-status.status-testing {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+  animation: pulse 1s infinite;
+}
+
+.proxy-status.status-connected {
+  background: rgba(0, 255, 136, 0.2);
+  color: #00ff88;
+}
+
+.proxy-status.status-failed {
+  background: rgba(255, 69, 58, 0.2);
+  color: #ff453a;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
 .empty-state {
   text-align: center;
   padding: 30px;

@@ -11,6 +11,9 @@ let deleteLocalPort: number | null = null; // 用于正向穿透
 let currentTab: any = 'reverse';
 let selectedClientId = ''; // 正向穿透选中的目标客户端
 
+// 代理连接状态映射：remotePort -> 'testing' | 'connected' | 'failed' | 'unknown'
+const proxyTestStatus = new Map<number, 'testing' | 'connected' | 'failed' | 'unknown'>();
+
 function formatUptime(ms: number): string {
   const seconds = Math.floor(ms / 1000);
   const minutes = Math.floor(seconds / 60);
@@ -111,6 +114,14 @@ async function updateStatus(): Promise<void> {
         listEl.innerHTML = '<div class="empty-state">暂无反向代理映射，点击上方按钮添加</div>';
       } else {
         listEl.innerHTML = data.proxies.map((p: any) => {
+          const status = proxyTestStatus.get(p.remotePort) || 'unknown';
+          const statusClass = status === 'connected' ? 'status-connected' :
+                              status === 'failed' ? 'status-failed' :
+                              status === 'testing' ? 'status-testing' : 'status-unknown';
+          const statusText = status === 'connected' ? '✓' :
+                           status === 'failed' ? '✗' :
+                           status === 'testing' ? '⟳' : '?';
+
           return `
               <div class="proxy-item">
                 <div class="proxy-info">
@@ -120,6 +131,7 @@ async function updateStatus(): Promise<void> {
                   <span class="proxy-arrow">→</span>
                   <span class="proxy-local">${p.localHost || 'localhost'}:${p.localPort}</span>
                 </div>
+                <div class="proxy-status ${statusClass}" title="连接状态">${statusText}</div>
                 <button class="btn btn-danger" onclick="showDeleteModal(${p.remotePort}, 'reverse')">删除</button>
               </div>
             `;
@@ -392,27 +404,51 @@ function initReverseProxy(): void {
         return;
       }
 
-      // 使用第一个代理进行测试
-      const firstProxy = proxies[0];
-      const testPort = firstProxy.remotePort;
-      const testLocalPort = firstProxy.localPort;
+      showToast(`正在测试 ${proxies.length} 个反向代理...`);
 
-      showToast(`正在测试端口 ${testPort}...`);
+      // 先将所有代理状态设为 testing
+      for (const p of proxies) {
+        proxyTestStatus.set(p.remotePort, 'testing');
+      }
+      updateStatus(); // 刷新显示
 
-      // 发送测试请求到本地管理页面的测试接口
-      const testRes = await fetch(`/_ctc/test-proxy?port=${testPort}`, {
-        method: 'POST'
+      // 逐个测试每个代理
+      const testPromises = proxies.map(async (p: any) => {
+        const port = p.remotePort;
+
+        try {
+          const testRes = await fetch(`/_ctc/test-proxy?port=${port}`, {
+            method: 'POST'
+          });
+
+          if (testRes.ok) {
+            const result = await testRes.json();
+            if (result.success) {
+              proxyTestStatus.set(port, 'connected');
+            } else {
+              proxyTestStatus.set(port, 'failed');
+            }
+          } else {
+            proxyTestStatus.set(port, 'failed');
+          }
+        } catch (e) {
+          proxyTestStatus.set(port, 'failed');
+        }
+
+        // 更新单个代理状态后刷新显示
+        updateStatus();
       });
 
-      if (testRes.ok) {
-        const result = await testRes.json();
-        if (result.success) {
-          showToast(`测试成功: 端口 ${testPort} -> 本地 ${testLocalPort} 正常工作`);
-        } else {
-          showToast(`测试失败: ${result.error || '未知错误'}`, 'error');
-        }
+      await Promise.all(testPromises);
+
+      // 统计结果
+      const connected = Array.from(proxyTestStatus.values()).filter(s => s === 'connected').length;
+      const failed = Array.from(proxyTestStatus.values()).filter(s => s === 'failed').length;
+
+      if (failed === 0) {
+        showToast(`测试完成: 全部成功 (${connected}/${proxies.length})`);
       } else {
-        showToast(`测试失败: HTTP ${testRes.status}`, 'error');
+        showToast(`测试完成: 成功 ${connected}, 失败 ${failed}`, 'error');
       }
     } catch (e) {
       showToast(`测试失败: ${(e as Error).message}`, 'error');
