@@ -441,6 +441,28 @@ function initForwardProxy(): void {
     loadClientsList();
   });
 
+  // 测试反向代理
+  const testReverseBtn = document.getElementById('testReverse');
+  testReverseBtn?.addEventListener('click', async () => {
+    try {
+      // 添加测试代理 8080 -> localhost:3000
+      const res = await fetch('/_ctc/proxies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ remotePort: 8080, localPort: 3000, localHost: 'localhost' })
+      });
+      if (res.ok) {
+        showToast('测试代理已添加');
+      updateStatus();
+      } else {
+        const data = await res.json();
+        showToast(`添加失败: ${data.error}`, 'error');
+      }
+    } catch (e) {
+      showToast('测试请求失败: 网络错误', 'error');
+    }
+  });
+
   showForwardFormBtn?.addEventListener('click', () => {
     forwardForm?.classList.add('show');
     if (!document.getElementById('clientsList')?.textContent.trim()) {

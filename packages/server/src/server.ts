@@ -199,7 +199,7 @@ export class ForwardServer {
     }
   }
 
-  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
 
     // 静态文件服务 - 首页读取模板文件
@@ -302,6 +302,44 @@ export class ForwardServer {
         res.writeHead(404, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: false, error: '客户端不存在' }));
       }
+      return;
+    }
+
+    // 清理孤立端口 API（删除在 UnifiedProxyHandler 中存在但不在 SessionManager 中的端口）
+    if (url === '/_chuantou/cleanup' && req.method === 'POST') {
+      const activePorts = this.proxyHandler.getActivePorts();
+      const registeredPorts = this.sessionManager.getAllRegisteredPorts();
+      const orphanPorts: number[] = [];
+
+      for (const port of activePorts) {
+        if (!registeredPorts.has(port)) {
+          orphanPorts.push(port);
+        }
+      }
+
+      if (orphanPorts.length > 0) {
+        logger.log(`发现 ${orphanPorts.length} 个孤立端口: ${orphanPorts.join(', ')}`);
+      }
+
+      // 清理孤立端口
+      const cleanedPorts: number[] = [];
+      for (const port of orphanPorts) {
+        try {
+          await this.proxyHandler.stopProxy(port);
+          cleanedPorts.push(port);
+          logger.log(`已清理孤立端口: ${port}`);
+        } catch (error) {
+          logger.error(`清理端口 ${port} 失败:`, error);
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        found: orphanPorts.length,
+        cleaned: cleanedPorts.length,
+        ports: cleanedPorts,
+      }));
       return;
     }
 

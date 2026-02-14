@@ -238,6 +238,31 @@ async function confirmDisconnect(): Promise<void> {
 }
 
 /**
+ * 清理孤立端口
+ */
+async function cleanupOrphanPorts(): Promise<void> {
+  try {
+    const res = await fetch('/_chuantou/cleanup', {
+      method: 'POST'
+    });
+    const data = await res.json() as { success: boolean; found: number; cleaned: number; ports: number[] };
+
+    if (data.success) {
+      if (data.found === 0) {
+        showToast('没有发现孤立端口');
+      } else {
+        showToast(`已清理 ${data.cleaned} 个孤立端口: ${data.ports.join(', ')}`);
+        updatePorts();
+      }
+    } else {
+      showToast('清理失败', 'error');
+    }
+  } catch (e) {
+    showToast('清理失败: 网络错误', 'error');
+  }
+}
+
+/**
  * 初始化
  */
 function init(): void {
