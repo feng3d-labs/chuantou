@@ -61,6 +61,7 @@ export class ProxyManager extends EventEmitter {
    * 向服务器注册一个代理隧道。
    *
    * 发送注册消息到服务器，注册成功后创建 UnifiedHandler（同时支持 HTTP、WebSocket 和 TCP）。
+   * 如果未连接到服务器，仅添加到本地列表，待连接后自动注册。
    *
    * @param config - 代理配置对象，包含远程端口、本地端口等信息
    * @throws {Error} 注册失败时抛出错误，包含服务器返回的错误信息
@@ -68,20 +69,32 @@ export class ProxyManager extends EventEmitter {
   async registerProxy(config: ProxyConfig): Promise<void> {
     logger.log(`正在注册代理: :${config.remotePort} -> ${config.localHost || 'localhost'}:${config.localPort}`);
 
-    const registerMsg: RegisterMessage = createMessage(MessageType.REGISTER, {
-      remotePort: config.remotePort,
-      localPort: config.localPort,
-      localHost: config.localHost,
-    });
+    // 只有在已认证的情况下才向服务器注册
+    if (this.controller.isAuthenticated()) {
+      const registerMsg: RegisterMessage = createMessage(MessageType.REGISTER, {
+        remotePort: config.remotePort,
+        localPort: config.localPort,
+        localHost: config.localHost,
+      });
 
-    const response = await this.controller.sendRequest<RegisterRespMessage>(registerMsg);
+      try {
+        const response = await this.controller.sendRequest<RegisterRespMessage>(registerMsg);
 
-    if (!response.payload.success) {
-      throw new Error(`注册代理失败: ${response.payload.error}`);
+        if (!response.payload.success) {
+          throw new Error(`注册代理失败: ${response.payload.error}`);
+        }
+
+        logger.log(`代理已注册: ${response.payload.remoteUrl}`);
+      } catch (error) {
+        // 服务器注册失败，抛出错误
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`注册代理失败: ${errorMessage}`);
+      }
+    } else {
+      logger.log(`代理已添加到本地列表: :${config.remotePort} -> ${config.localHost || 'localhost'}:${config.localPort} (待连接后自动注册)`);
     }
 
-    logger.log(`代理已注册: ${response.payload.remoteUrl}`);
-
+    // 无论是否连接成功，都创建本地处理器
     const handler = new UnifiedHandler(this.controller, config);
 
     handler.on('error', (error: Error) => {
@@ -95,7 +108,7 @@ export class ProxyManager extends EventEmitter {
   /**
    * 注销指定远程端口的代理隧道。
    *
-   * 销毁对应的处理器，并向服务器发送注销请求。
+   * 销毁对应的处理器，并向服务器发送注销请求（仅在已连接时）。
    *
    * @param remotePort - 要注销的代理对应的远程端口号
    */
@@ -106,12 +119,23 @@ export class ProxyManager extends EventEmitter {
       this.handlers.delete(remotePort);
     }
 
-    const unregisterMsg: UnregisterMessage = createMessage(MessageType.UNREGISTER, {
-      remotePort,
-    });
+    // 只有在已连接的情况下才向服务器发送注销请求
+    if (this.controller.isConnected()) {
+      const unregisterMsg: UnregisterMessage = createMessage(MessageType.UNREGISTER, {
+        remotePort,
+      });
 
-    await this.controller.sendRequest(unregisterMsg);
-    logger.log(`代理已注销: 端口 ${remotePort}`);
+      try {
+        await this.controller.sendRequest(unregisterMsg);
+        logger.log(`代理已注销: 端口 ${remotePort}`);
+      } catch (error) {
+        // 即使服务器注销失败，本地也已经删除了，记录错误但不抛出
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.error(`服务器注销代理失败: ${errorMessage}`);
+      }
+    } else {
+      logger.log(`代理已移除: 端口 ${remotePort} (未连接到服务器)`);
+    }
   }
 
   /**

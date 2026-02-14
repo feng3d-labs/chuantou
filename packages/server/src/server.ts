@@ -16,6 +16,9 @@ import { createServer as createHttpServer, IncomingMessage, ServerResponse, Serv
 import { createServer as createHttpsServer } from 'https';
 import { createServer as createTcpServer, Server as TcpServer, Socket } from 'net';
 import { createSocket as createUdpSocket, Socket as UdpSocket } from 'dgram';
+import { readFile } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ServerConfig, DEFAULT_CONFIG, logger, isDataChannelAuth } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
@@ -59,6 +62,11 @@ export class ForwardServer {
   private udpSocket?: UdpSocket;
   private statsInterval?: ReturnType<typeof setInterval>;
   private startedAt?: number;
+
+  /**
+   * 静态文件目录常量
+   */
+  private static readonly STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'admin-ui', 'dist');
 
   constructor(options: Partial<ServerConfig> = {}) {
     this.config = {
@@ -194,6 +202,47 @@ export class ForwardServer {
   private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
     const url = req.url ?? '/';
 
+    // 静态文件服务 - 首页读取模板文件
+    if (url === '/' && req.method === 'GET') {
+      const templatePath = join(ForwardServer.STATIC_DIR, 'template.html');
+      readFile(templatePath, 'utf-8', (err, data) => {
+        if (err) {
+          console.error('模板文件读取错误:', err);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Error loading page');
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(data);
+        }
+      });
+      return;
+    }
+
+    // 处理静态文件请求 (支持 .js, .css 等静态资源直接从根路径访问）
+    if (req.method === 'GET' && url !== '/' && !url.startsWith('/_chuantou/')) {
+      const fileName = url.slice(1) as string; // 去掉开头的 /
+      const filePath = join(ForwardServer.STATIC_DIR, fileName);
+
+      readFile(filePath, 'utf-8', (err, data) => {
+        if (err || !data) {
+          console.error('静态文件读取错误:', err);
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('File not found');
+          return;
+        }
+        const ext = fileName.split('.').pop() || 'html';
+        const contentType = ext === 'css' ? 'text/css; charset=utf-8' :
+                         ext === 'js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600'
+        });
+        res.end(data);
+      });
+      return;
+    }
+
     // 服务器状态 API
     if (url === '/_chuantou/status' && req.method === 'GET') {
       const status = this.getStatus();
@@ -213,7 +262,9 @@ export class ForwardServer {
     // 端口映射列表 API
     if (url === '/_chuantou/ports' && req.method === 'GET') {
       const sessions = this.sessionManager.getSessions();
-      const ports: Array<{ port: number; clientId: string; connections: number }> = [];
+      const ports: Array<{ port: number; clientId: string; connections: number; description: string }> = [];
+
+      // 添加客户端注册的端口
       for (const session of sessions) {
         const clientInfo = this.sessionManager.getClientInfo(session.clientId);
         if (clientInfo) {
@@ -224,6 +275,7 @@ export class ForwardServer {
               port,
               clientId: session.clientId,
               connections: connectionCount,
+              description: '客户端反向代理端口',
             });
           }
         }

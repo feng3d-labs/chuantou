@@ -17,7 +17,24 @@ import { ProxyConfig, ProxyConfigWithIndex, logger } from '@feng3d/chuantou-shar
 import { join } from 'path';
 import { homedir } from 'os';
 import { ForwardProxy } from './forward-proxy.js';
+import { writeFile } from 'fs';
 import type { ForwardProxyEntry } from '@feng3d/chuantou-shared';
+
+/**
+ * 更新配置文件中的代理列表
+ */
+async function updateConfigProxies(proxies: ProxyConfig[]): Promise<void> {
+  const config = await Config.load();
+  config.proxies = proxies;
+  const configPath = join(homedir(), '.chuantou', 'client', 'config.json');
+  writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8', (err) => {
+    if (err) {
+      logger.error('更新配置文件失败:', err);
+    } else {
+      logger.log('配置文件已更新');
+    }
+  });
+}
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -111,6 +128,8 @@ async function main(): Promise<void> {
   const addProxyCallback = async (proxy: ProxyConfig): Promise<void> => {
     await proxyManager.registerProxy(proxy);
     registeredProxies.push({ ...proxy, index: nextProxyIndex++ });
+    // 同步更新配置文件
+    await updateConfigProxies(registeredProxies.map(p => ({ remotePort: p.remotePort, localPort: p.localPort, localHost: p.localHost })));
   };
 
   // 删除代理回调
@@ -120,6 +139,8 @@ async function main(): Promise<void> {
     if (index !== -1) {
       registeredProxies.splice(index, 1);
     }
+    // 同步更新配置文件
+    await updateConfigProxies(registeredProxies);
   };
 
   // 添加正向穿透回调

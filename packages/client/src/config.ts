@@ -225,9 +225,10 @@ export class Config implements ClientConfig {
     if (!this.serverUrl.startsWith('ws://') && !this.serverUrl.startsWith('wss://')) {
       throw new Error('服务器地址必须以 ws:// 或 wss:// 开头');
     }
-    if (this.proxies.length === 0) {
-      throw new Error('至少需要一个代理配置 (--proxies 或 --config 配置文件)');
-    }
+    // 不再强制要求至少有一个代理配置 - 支持通过管理页面动态添加/删除代理
+    // if (this.proxies.length === 0) {
+    //   throw new Error('至少需要一个代理配置 (--proxies 或 --config 配置文件)');
+    // }
     for (let i = 0; i < this.proxies.length; i++) {
       const proxy = this.proxies[i];
       if (!proxy.remotePort || proxy.remotePort < 1024 || proxy.remotePort > 65535) {

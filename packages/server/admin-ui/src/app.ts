@@ -175,6 +175,7 @@ async function updatePorts(): Promise<void> {
       port: number;
       clientId: string;
       connections: number;
+      description?: string;
     }) => {
       const shortId = p.clientId.slice(0, 8);
 
@@ -185,6 +186,7 @@ async function updatePorts(): Promise<void> {
             <span class="port-client">${shortId}...</span>
             <span class="port-connections">${p.connections} 连接</span>
           </div>
+          ${p.description ? `<div class="port-description">${p.description}</div>` : ''}
         </div>
       `;
     }).join('');

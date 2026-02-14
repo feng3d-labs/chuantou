@@ -266,6 +266,13 @@ body {
   font-size: 12px;
 }
 
+.port-description {
+  color: #888;
+  font-size: 11px;
+  margin-top: 4px;
+  padding-left: 8px;
+}
+
 .empty-state {
   text-align: center;
   padding: 30px;

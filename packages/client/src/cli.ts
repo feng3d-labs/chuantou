@@ -82,7 +82,7 @@ ${chalk.bold('全局选项：')}
   ${chalk.yellow('-v, --version')}  显示版本号
 
 ${chalk.bold('start 命令选项：')}
-  ${chalk.yellow('--server <url>')}    服务器地址 (如: ws://localhost:9000)
+  ${chalk.yellow('--server <url>')}    服务器地址 (默认: ws://localhost:9000)
   ${chalk.yellow('--token <token>')}     认证令牌
   ${chalk.yellow('--no-boot')}         不注册开机自启动
   ${chalk.yellow('--open')}            启动后打开管理页面
@@ -293,11 +293,8 @@ const startCmd = program.command('start')
 
     // 如果仍然没有服务器地址，使用默认值
     if (!serverUrl) {
-      console.log(chalk.yellow('未指定服务器地址'));
-      console.log(chalk.gray('使用方法：'));
-      console.log(chalk.gray('  1. npx @feng3d/cts config set serverUrl <url>'));
-      console.log(chalk.gray('  2. npx @feng3d/cts start --server <url>'));
-      process.exit(1);
+      serverUrl = 'ws://localhost:9000';
+      console.log(chalk.yellow('未指定服务器地址，使用默认值：ws://localhost:9000'));
     }
 
     // 启动参数
