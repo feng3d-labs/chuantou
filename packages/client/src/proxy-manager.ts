@@ -167,6 +167,15 @@ export class ProxyManager extends EventEmitter {
   }
 
   /**
+   * 获取所有已注册的远程端口列表
+   *
+   * @returns 已注册的远程端口号数组
+   */
+  getRegisteredPorts(): number[] {
+    return Array.from(this.handlers.keys());
+  }
+
+  /**
    * 销毁代理管理器，注销所有代理并释放资源。
    *
    * @returns 销毁完成后解析的 Promise

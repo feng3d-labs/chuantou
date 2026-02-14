@@ -101,13 +101,24 @@ async function main(): Promise<void> {
 
   // 获取状态回调
   const getStatusCallback = (): ClientStatus => {
+    // 获取实际在 ProxyManager 中注册的端口
+    const actualRegisteredPorts = proxyManager.getRegisteredPorts();
+
+    // 过滤出实际注册的代理配置，去重
+    const actualRegisteredProxies = registeredProxies
+      .filter(p => actualRegisteredPorts.includes(p.remotePort))
+      .filter((p, index, self) => {
+        // 去重：只保留第一次出现的端口
+        return index === self.findIndex(other => other.remotePort === p.remotePort);
+      });
+
     const status: ClientStatus = {
       running: true,
       serverUrl: config.serverUrl,
       connected: controller.isConnected(),
       authenticated: controller.isAuthenticated(),
       uptime: Date.now() - startTime,
-      proxies: registeredProxies.map(p => ({ ...p })),
+      proxies: actualRegisteredProxies,
       reconnectAttempts: controller.getReconnectAttempts(),
     };
 
@@ -203,11 +214,18 @@ async function main(): Promise<void> {
   controller.on('authenticated', async () => {
     logger.log('已认证，正在注册代理...');
 
-    // 注册所有代理
+    // 获取实际在 ProxyManager 中注册的端口
+    const actualRegisteredPorts = proxyManager.getRegisteredPorts();
+
+    // 注册所有代理（只注册尚未实际注册的）
     for (const proxyConfig of config.proxies) {
+      if (actualRegisteredPorts.includes(proxyConfig.remotePort)) {
+        logger.log(`代理 :${proxyConfig.remotePort} 已注册，跳过`);
+        continue;
+      }
+
       try {
         await proxyManager.registerProxy(proxyConfig);
-        // 代理配置已在初始化时添加到 registeredProxies
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error(`注册代理失败: ${errorMessage}`);
