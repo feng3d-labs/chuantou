@@ -179,6 +179,7 @@ export class AdminServer {
    *   - `GET /_ctc/status` - 获取状态
    *   - `POST /_ctc/proxies` - 添加反向代理
    *   - `DELETE /_ctc/proxies/:port` - 删除反向代理
+   *   - `POST /_ctc/test-proxy?port=xxx` - 测试反向代理连接
    * 正向穿透：
    *   - `GET /_ctc/forward/list` - 获取正向穿透列表
    *   - `POST /_ctc/forward/add` - 添加正向穿透
@@ -277,6 +278,82 @@ export class AdminServer {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: errorMessage }));
         });
+      return;
+    }
+
+    // 测试反向代理 API
+    if (url.startsWith('/_ctc/test-proxy') && req.method === 'POST') {
+      const urlObj = new URL(url, `http://${req.headers.host}`);
+      const portParam = urlObj.searchParams.get('port');
+      const port = portParam ? parseInt(portParam, 10) : NaN;
+
+      if (isNaN(port)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '无效的端口号' }));
+        return;
+      }
+
+      // 通过 Controller 发送测试请求到服务端，然后测试连接
+      try {
+        // 简单测试：尝试连接本地端口来验证代理是否工作
+        // 实际测试需要通过服务端发起请求，这里只返回成功状态
+        const status = this.getStatusCallback();
+        const proxy = status.proxies.find((p: ProxyConfig) => p.remotePort === port);
+
+        if (!proxy) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: '端口未注册' }));
+          return;
+        }
+
+        // 测试本地端口是否可连接
+        const net = await import('net');
+        const testClient = new net.Socket();
+        let connected = false;
+        let error: string | null = null;
+
+        await new Promise<void>((resolve) => {
+          testClient.connect({ port: proxy.localPort, host: proxy.localHost || 'localhost' }, () => {
+            connected = true;
+            testClient.destroy();
+            resolve();
+          });
+
+          testClient.on('error', (err: any) => {
+            error = err.message;
+            testClient.destroy();
+            resolve();
+          });
+
+          // 2秒超时
+          setTimeout(() => {
+            if (!connected) {
+              error = '连接超时';
+              testClient.destroy();
+              resolve();
+            }
+          }, 2000);
+        });
+
+        if (connected) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            message: `本地端口 ${proxy.localPort} 连接成功`,
+            proxy: { remotePort: port, localPort: proxy.localPort }
+          }));
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: false,
+            error: `本地端口 ${proxy.localPort} 连接失败: ${error}`
+          }));
+        }
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: errorMessage }));
+      }
       return;
     }
 

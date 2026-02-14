@@ -183,6 +183,11 @@ body {
   margin-bottom: 16px;
 }
 
+.header-buttons {
+  display: flex;
+  gap: 8px;
+}
+
 .section-title {
   font-size: 13px;
   color: #888;

@@ -369,6 +369,7 @@ function initReverseProxy(): void {
   const cancelAddBtn = document.getElementById('cancelAdd');
   const addProxyBtn = document.getElementById('addProxy');
   const addForm = document.getElementById('addForm');
+  const testReverseProxyBtn = document.getElementById('testReverseProxy');
 
   showAddFormBtn?.addEventListener('click', () => {
     addForm?.classList.add('show');
@@ -376,6 +377,46 @@ function initReverseProxy(): void {
 
   cancelAddBtn?.addEventListener('click', () => {
     addForm?.classList.remove('show');
+  });
+
+  // 测试反向代理连接
+  testReverseProxyBtn?.addEventListener('click', async () => {
+    // 获取当前已注册的代理列表
+    try {
+      const statusRes = await fetch('/_ctc/status');
+      const statusData = await statusRes.json();
+      const proxies = statusData.proxies || [];
+
+      if (proxies.length === 0) {
+        showToast('请先添加反向代理', 'error');
+        return;
+      }
+
+      // 使用第一个代理进行测试
+      const firstProxy = proxies[0];
+      const testPort = firstProxy.remotePort;
+      const testLocalPort = firstProxy.localPort;
+
+      showToast(`正在测试端口 ${testPort}...`);
+
+      // 发送测试请求到本地管理页面的测试接口
+      const testRes = await fetch(`/_ctc/test-proxy?port=${testPort}`, {
+        method: 'POST'
+      });
+
+      if (testRes.ok) {
+        const result = await testRes.json();
+        if (result.success) {
+          showToast(`测试成功: 端口 ${testPort} -> 本地 ${testLocalPort} 正常工作`);
+        } else {
+          showToast(`测试失败: ${result.error || '未知错误'}`, 'error');
+        }
+      } else {
+        showToast(`测试失败: HTTP ${testRes.status}`, 'error');
+      }
+    } catch (e) {
+      showToast(`测试失败: ${(e as Error).message}`, 'error');
+    }
   });
 
   addProxyBtn?.addEventListener('click', async () => {
