@@ -232,10 +232,15 @@ export class Controller extends EventEmitter {
       const message = JSON.parse(data.toString());
       const msgType = message.type;
 
+      // 先发射通用的 controlMessage 事件，供其他模块使用
+      this.emit('controlMessage', message);
+
       switch (msgType) {
         case MessageType.AUTH_RESP:
         case MessageType.REGISTER_RESP:
         case MessageType.HEARTBEAT_RESP:
+        case MessageType.CLIENT_REGISTER_RESP:
+        case MessageType.CLIENT_LIST:
           this.handleResponse(message);
           break;
 
@@ -249,6 +254,11 @@ export class Controller extends EventEmitter {
 
         case MessageType.CONNECTION_ERROR:
           this.emit('connectionError', message as ConnectionErrorMessage);
+          break;
+
+        case MessageType.INCOMING_CONNECTION:
+        case MessageType.CONNECTION_ESTABLISHED:
+          // 这些消息通过 controlMessage 事件处理
           break;
 
         default:

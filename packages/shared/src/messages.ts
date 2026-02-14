@@ -22,7 +22,7 @@ export enum MessageType {
   /** 服务端返回的认证响应消息 */
   AUTH_RESP = 'auth_resp',
 
-  /** 客户端发送的代理注册请求消息 */
+  /** 客户端发送的代理注册请求消息（反向代理模式） */
   REGISTER = 'register',
   /** 客户端发送的代理注销请求消息 */
   UNREGISTER = 'unregister',
@@ -39,6 +39,32 @@ export enum MessageType {
   CONNECTION_CLOSE = 'connection_close',
   /** 连接错误通知消息 */
   CONNECTION_ERROR = 'connection_error',
+
+  // ===== 正向穿透模式新增消息类型 =====
+
+  /** 客户端注册到服务端（获取客户端列表） */
+  CLIENT_REGISTER = 'client_register',
+  /** 服务端返回客户端注册响应 */
+  CLIENT_REGISTER_RESP = 'client_register_resp',
+  /** 请求获取在线客户端列表 */
+  GET_CLIENT_LIST = 'get_client_list',
+  /** 服务端返回在线客户端列表 */
+  CLIENT_LIST = 'client_list',
+
+  /** 请求连接到其他客户端（正向穿透） */
+  CONNECT_REQUEST = 'connect_request',
+  /** 服务端通知目标客户端有入站连接 */
+  INCOMING_CONNECTION = 'incoming_connection',
+  /** 客户端接受入站连接 */
+  ACCEPT_CONNECTION = 'accept_connection',
+  /** 客户端拒绝入站连接 */
+  REJECT_CONNECTION = 'reject_connection',
+  /** 服务端通知连接已建立 */
+  CONNECTION_ESTABLISHED = 'connection_established',
+  /** 服务端请求目标客户端连接到指定端口 */
+  PROXY_TARGET_PORT = 'proxy_target_port',
+  /** 目标客户端确认已连接到目标端口 */
+  TARGET_PORT_CONNECTED = 'target_port_connected',
 }
 
 /**
@@ -237,6 +263,183 @@ export interface ConnectionErrorMessage extends Message {
   };
 }
 
+// ===== 正向穿透模式消息类型 =====
+
+/**
+ * 客户端注册消息
+ *
+ * 客户端向服务端注册自己的存在，用于获取客户端列表。
+ */
+export interface ClientRegisterMessage extends Message {
+  type: MessageType.CLIENT_REGISTER;
+  payload: {
+    /** 客户端标识符（可选，不提供则由服务端分配） */
+    clientId?: string;
+    /** 客户端描述信息 */
+    description?: string;
+  };
+}
+
+/**
+ * 客户端注册响应消息
+ */
+export interface ClientRegisterRespMessage extends Message {
+  type: MessageType.CLIENT_REGISTER_RESP;
+  payload: {
+    /** 注册是否成功 */
+    success: boolean;
+    /** 服务端分配的客户端 ID */
+    clientId?: string;
+    /** 如果之前有同名客户端被踢下线 */
+    existingKicked?: boolean;
+    /** 错误信息 */
+    error?: string;
+  };
+}
+
+/**
+ * 获取客户端列表消息
+ */
+export interface GetClientListMessage extends Message {
+  type: MessageType.GET_CLIENT_LIST;
+  payload: Record<string, never>;
+}
+
+/**
+ * 客户端信息（用于列表展示）
+ */
+export interface ClientListEntry {
+  /** 客户端 ID */
+  id: string;
+  /** 描述信息 */
+  description?: string;
+  /** 注册时间 */
+  registeredAt: number;
+  /** 最后心跳时间 */
+  lastHeartbeat: number;
+}
+
+/**
+ * 客户端列表消息
+ */
+export interface ClientListMessage extends Message {
+  type: MessageType.CLIENT_LIST;
+  payload: {
+    /** 在线客户端列表 */
+    clients: ClientListEntry[];
+  };
+}
+
+/**
+ * 连接请求消息（正向穿透）
+ *
+ * 发起方客户端向服务端请求连接到目标客户端的指定端口。
+ */
+export interface ConnectRequestMessage extends Message {
+  type: MessageType.CONNECT_REQUEST;
+  payload: {
+    /** 发起方客户端 ID */
+    fromClientId: string;
+    /** 目标客户端 ID */
+    toClientId: string;
+    /** 目标端口（要连接的目标客户端的端口） */
+    targetPort: number;
+    /** 会话 ID */
+    sessionId: string;
+  };
+}
+
+/**
+ * 入站连接通知消息
+ *
+ * 服务端通知目标客户端有入站连接请求。
+ */
+export interface IncomingConnectionMessage extends Message {
+  type: MessageType.INCOMING_CONNECTION;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+    /** 发起方客户端 ID */
+    fromClientId: string;
+    /** 目标端口 */
+    targetPort: number;
+  };
+}
+
+/**
+ * 接受连接消息
+ *
+ * 目标客户端接受入站连接。
+ */
+export interface AcceptConnectionMessage extends Message {
+  type: MessageType.ACCEPT_CONNECTION;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+  };
+}
+
+/**
+ * 拒绝连接消息
+ *
+ * 目标客户端拒绝入站连接。
+ */
+export interface RejectConnectionMessage extends Message {
+  type: MessageType.REJECT_CONNECTION;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+    /** 拒绝原因 */
+    reason?: string;
+  };
+}
+
+/**
+ * 连接已建立消息
+ *
+ * 服务端通知双方连接已建立，可以开始传输数据。
+ */
+export interface ConnectionEstablishedMessage extends Message {
+  type: MessageType.CONNECTION_ESTABLISHED;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+    /** 数据通道中继地址 */
+    relayAddr: {
+      host: string;
+      port: number;
+    };
+  };
+}
+
+/**
+ * 代理目标端口消息
+ *
+ * 服务端请求目标客户端连接到其本地指定端口。
+ */
+export interface ProxyTargetPortMessage extends Message {
+  type: MessageType.PROXY_TARGET_PORT;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+    /** 目标端口 */
+    targetPort: number;
+  };
+}
+
+/**
+ * 目标端口已连接消息
+ *
+ * 目标客户端确认已成功连接到目标端口。
+ */
+export interface TargetPortConnectedMessage extends Message {
+  type: MessageType.TARGET_PORT_CONNECTED;
+  payload: {
+    /** 会话 ID */
+    sessionId: string;
+  };
+}
+
 /**
  * 所有消息类型的联合类型
  */
@@ -250,7 +453,18 @@ export type AnyMessage =
   | HeartbeatRespMessage
   | NewConnectionMessage
   | ConnectionCloseMessage
-  | ConnectionErrorMessage;
+  | ConnectionErrorMessage
+  | ClientRegisterMessage
+  | ClientRegisterRespMessage
+  | GetClientListMessage
+  | ClientListMessage
+  | ConnectRequestMessage
+  | IncomingConnectionMessage
+  | AcceptConnectionMessage
+  | RejectConnectionMessage
+  | ConnectionEstablishedMessage
+  | ProxyTargetPortMessage
+  | TargetPortConnectedMessage;
 
 /**
  * 消息类型守卫

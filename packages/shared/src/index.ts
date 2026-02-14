@@ -9,11 +9,20 @@
 
 /** 导出所有消息类型、消息接口及消息工具函数 */
 export * from './messages.js';
+
 /** 导出协议常量、错误码、默认配置及各类配置接口 */
 export * from './protocol.js';
+
 /** 导出日志工具 */
 export * from './logger.js';
+
 /** 导出数据通道二进制帧协议工具 */
 export * from './data-channel.js';
+
 /** 导出开机启动管理模块（服务端/客户端通用） */
 export * from './boot.js';
+
+/**
+ * 导出正向穿透代理类型
+ */
+export { ForwardProxyEntry } from './protocol.js';

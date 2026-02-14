@@ -117,8 +117,8 @@ export const DEFAULT_CONFIG = {
 
   /** 断线重连间隔时间，单位毫秒（默认 5 秒） */
   RECONNECT_INTERVAL: 5000,
-  /** 最大重连尝试次数（默认 10 次） */
-  MAX_RECONNECT_ATTEMPTS: 10,
+  /** 最大重连尝试次数（默认 Infinity，表示无限重连） */
+  MAX_RECONNECT_ATTEMPTS: Infinity,
 
   /** 允许注册的最小端口号 */
   MIN_PORT: 1024,
@@ -137,7 +137,7 @@ export const DEFAULT_CONFIG = {
 export type ConnectionProtocol = 'http' | 'websocket' | 'tcp' | 'udp';
 
 /**
- * 代理配置接口
+ * 代理配置接口（反向代理模式）
  *
  * 描述单条代理隧道的配置，指定远程端口到本地端口的映射关系。
  * 每个端口同时支持 HTTP、WebSocket 和 TCP 所有协议。
@@ -151,6 +151,40 @@ export interface ProxyConfig {
   localPort: number;
   /** 本地服务的主机地址，默认为 localhost */
   localHost?: string;
+}
+
+/**
+ * 正向穿透代理配置接口
+ *
+ * 描述从本地端口到远程客户端端口的穿透映射。
+ */
+export interface ForwardProxyConfig {
+  /** 代理唯一标识符 */
+  id?: string;
+  /** 本地监听端口号，用户连接此端口 */
+  localPort: number;
+  /** 目标客户端 ID */
+  targetClientId: string;
+  /** 目标客户端的端口号 */
+  targetPort: number;
+  /** 是否启用 */
+  enabled?: string;
+}
+
+/**
+ * 正向穿透代理条目接口
+ *
+ * 描述单个正向穿透代理条目的配置信息。
+ */
+export interface ForwardProxyEntry {
+  /** 本地监听端口 */
+  localPort: number;
+  /** 目标客户端 ID */
+  targetClientId: string;
+  /** 目标端口 */
+  targetPort: number;
+  /** 是否启用 */
+  enabled: boolean;
 }
 
 /**

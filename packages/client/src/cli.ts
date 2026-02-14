@@ -24,7 +24,7 @@ import { homedir, platform } from 'os';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { ProxyConfig, ClientConfig } from '@feng3d/chuantou-shared';
-import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared';
 
 /** 数据目录 */
 const DATA_DIR = join(homedir(), '.chuantou');
@@ -37,6 +37,8 @@ interface PidFileInfo {
   pid: number;
   /** 服务器地址 */
   serverUrl: string;
+  /** 管理页面端口 */
+  adminPort: number;
   /** 启动时间戳 */
   startedAt: number;
   /** 最后重启时间戳（可选） */
@@ -52,21 +54,24 @@ const CONFIG_FILE = join(CLIENT_DIR, 'config.json');
 const PID_FILE = join(CLIENT_DIR, 'client.pid');
 /** 日志文件 */
 const LOG_FILE = join(CLIENT_DIR, 'client.log');
-/** 管理服务器 URL */
-const ADMIN_URL = 'http://127.0.0.1:9001';
+/** 管理服务器 URL 默认值 */
+const ADMIN_URL_DEFAULT = 'http://127.0.0.1:9001';
+/** 管理服务器端口默认值 */
+const ADMIN_PORT_DEFAULT = 9001;
 
 /**
  * 帮助文本
  */
 const HELP_TEXT = `
-${chalk.bold('用法：')} npx @feng3d/cts <${chalk.bold('命令')}> [选项]
+${chalk.bold('用法：')} cts <${chalk.bold('命令')}> [选项]
 
 ${chalk.bold('命令：')}
   ${chalk.cyan('start')}      启动客户端（后台守护进程）
-  ${chalk.cyan('close')}      关闭客户端
+  ${chalk.cyan('stop')}       关闭客户端
   ${chalk.cyan('restart')}    重启客户端
   ${chalk.cyan('status')}     查看运行状态
-  ${chalk.cyan('proxies')}    管理代理映射
+  ${chalk.cyan('proxies')}    管理反向代理映射
+  ${chalk.cyan('forward')}    管理正向穿透代理
   ${chalk.cyan('config')}     管理配置
   ${chalk.cyan('boot')}      管理开机自启动
   ${chalk.cyan('logs')}       查看日志
@@ -77,16 +82,23 @@ ${chalk.bold('全局选项：')}
   ${chalk.yellow('-v, --version')}  显示版本号
 
 ${chalk.bold('start 命令选项：')}
-  ${chalk.yellow('--server <url>')}    服务器地址 (如: ws://localhost:9000)
+  ${chalk.yellow('--server <url>')}    服务器地址 (默认: ws://localhost:9000)
   ${chalk.yellow('--token <token>')}     认证令牌
   ${chalk.yellow('--no-boot')}         不注册开机自启动
   ${chalk.yellow('--open')}            启动后打开管理页面
 
-${chalk.bold('proxies 命令选项：')}
+${chalk.bold('proxies 命令（反向代理）：')}
   ${chalk.yellow('list')}              列出所有代理映射
-  ${chalk.yellow('add <remote:local>')}  添加代理 (如: 8080:3000 或 8080:3000:192.168.1.100)
+  ${chalk.yellow('add <remote:local>')}  添加代理 (如: 8080:3000)
   ${chalk.yellow('remove <port>')}     移除指定端口的代理
   ${chalk.yellow('clear')}            清空所有代理
+
+${chalk.bold('forward 命令（正向穿透）：')}
+  ${chalk.yellow('list')}              列出所有正向穿透代理
+  ${chalk.yellow('add <local:remote:client>')}  添加穿透 (如: 8080:3000:clientB)
+  ${chalk.yellow('remove <localPort>')} 移除指定本地端口的穿透
+  ${chalk.yellow('clients')}           查看在线客户端列表
+  ${chalk.yellow('register')}          注册到服务器启用正向穿透
 
 ${chalk.bold('config 命令选项：')}
   ${chalk.yellow('get [key]')}       获取配置项
@@ -104,21 +116,24 @@ ${chalk.dim('管理页面：')} http://127.0.0.1:9001
 
 ${chalk.dim('示例：')}
   ${chalk.gray('# 启动客户端')}
-  npx @feng3d/cts start --server ws://192.168.1.100:9000 --token mytoken
+  cts start --server ws://192.168.1.100:9000 --token mytoken
 
-  ${chalk.gray('# 添加代理映射')}
-  npx @feng3d/cts proxies add 8080:3000
-  npx @feng3d/cts proxies add 2222:22:8080:192.168.1.100
+  ${chalk.gray('# 正向穿透模式：注册并添加映射')}
+  cts forward register --description "我的电脑"
+  cts forward clients
+  cts forward add 8080:3000:clientB
+  cts forward list
 
-  ${chalk.gray('# 查看状态')}
-  npx @feng3d/cts status
+  ${chalk.gray('# 反向代理模式：暴露本地服务')}
+  cts proxies add 8080:3000
+  cts proxies list
 
   ${chalk.gray('# 管理配置')}
-  npx @feng3d/cts config set serverUrl ws://localhost:9000
-  npx @feng3d/cts config set token mytoken
+  cts config set serverUrl ws://localhost:9000
+  cts config set token mytoken
 
   ${chalk.gray('# 开机自启动')}
-  npx @feng3d/cts boot enable
+  cts boot enable
 `;
 
 /**
@@ -207,9 +222,9 @@ function isClientRunning(): boolean {
 /**
  * 获取客户端状态
  */
-async function getClientStatus(): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
+async function getClientStatus(adminPort: number = ADMIN_PORT_DEFAULT): Promise<{ proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number } | null> {
   try {
-    const res = await fetch(`${ADMIN_URL}/_ctc/status`, { method: 'GET' });
+    const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/status`, { method: 'GET' });
     if (!res.ok) return null;
     const data = await res.json() as { proxies: ProxyConfig[]; connected: boolean; authenticated: boolean; uptime: number; reconnectAttempts?: number };
     return data;
@@ -250,6 +265,7 @@ const startCmd = program.command('start')
   .description('启动客户端（后台守护进程）')
   .option('--server <url>', '服务器地址')
   .option('--token <token>', '认证令牌')
+  .option('--admin-port <port>', '管理页面端口（默认：9001）')
   .option('--no-boot', '不注册开机自启动')
   .option('-o, --open', '启动后打开管理页面')
   .action(async (options) => {
@@ -277,17 +293,16 @@ const startCmd = program.command('start')
 
     // 如果仍然没有服务器地址，使用默认值
     if (!serverUrl) {
-      console.log(chalk.yellow('未指定服务器地址'));
-      console.log(chalk.gray('使用方法：'));
-      console.log(chalk.gray('  1. npx @feng3d/cts config set serverUrl <url>'));
-      console.log(chalk.gray('  2. npx @feng3d/cts start --server <url>'));
-      process.exit(1);
+      serverUrl = 'ws://localhost:9000';
+      console.log(chalk.yellow('未指定服务器地址，使用默认值：ws://localhost:9000'));
     }
 
     // 启动参数
     const serveArgs = ['--config', CONFIG_FILE];
     if (serverUrl) serveArgs.push('--server', serverUrl);
     if (token) serveArgs.push('--token', token);
+    const adminPort = options.adminPort ? parseInt(options.adminPort, 10) : ADMIN_PORT_DEFAULT;
+    serveArgs.push('--admin-port', adminPort.toString());
 
     // 打开日志文件
     const logFd = openSync(LOG_FILE, 'a');
@@ -303,6 +318,7 @@ const startCmd = program.command('start')
       writePidFile({
         pid: child.pid,
         serverUrl,
+        adminPort,
         startedAt: Date.now(),
       });
     }
@@ -313,6 +329,8 @@ const startCmd = program.command('start')
     console.log(chalk.green('客户端已在后台启动'));
     console.log(chalk.gray(`  PID: ${child.pid}`));
     console.log(chalk.gray(`  服务器: ${serverUrl}`));
+    console.log(chalk.gray(`  管理页面: http://127.0.0.1:${adminPort}`));
+    console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
     console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
     // 如果需要开机自启动
@@ -333,7 +351,7 @@ const startCmd = program.command('start')
     // 打开管理页面
     if (options.open) {
       setTimeout(() => {
-        const adminPage = 'http://127.0.0.1:9001';
+        const adminPage = `http://127.0.0.1:${adminPort}`;
         console.log(chalk.gray(`打开管理页面: ${adminPage}`));
         const openCmd = platform() === 'win32' ? 'start' : 'open';
         execSync(`${openCmd} ${adminPage}`, { stdio: 'ignore' });
@@ -341,9 +359,9 @@ const startCmd = program.command('start')
     }
   });
 
-// ==================== close 命令 ====================
+// ==================== stop 命令 ====================
 
-const closeCmd = program.command('close')
+const stopCmd = program.command('stop')
   .description('关闭客户端')
   .action(async () => {
     const info = readPidFile();
@@ -406,6 +424,17 @@ const restartCmd = program.command('restart')
 
     startChild.unref();
     console.log(chalk.green('客户端已重启'));
+
+    // 等待客户端启动并显示状态
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    const newInfo = readPidFile();
+    if (newInfo) {
+      console.log(chalk.gray(`  PID: ${newInfo.pid}`));
+      console.log(chalk.gray(`  管理页面: http://127.0.0.1:${newInfo.adminPort}`));
+    } else {
+      console.log(chalk.yellow('  启动状态: 未知'));
+    }
   });
 
 // ==================== status 命令 ====================
@@ -423,11 +452,14 @@ const statusCmd = program.command('status')
     console.log(chalk.blue.bold('穿透客户端状态'));
     console.log(chalk.gray(`  PID: ${info.pid}`));
     console.log(chalk.gray(`  服务器: ${info.serverUrl}`));
+    console.log(chalk.gray(`  管理页面: http://127.0.0.1:${info.adminPort}`));
+    console.log(chalk.gray(`  配置: ${CONFIG_FILE}`));
+    console.log(chalk.gray(`  日志: ${LOG_FILE}`));
     console.log(chalk.gray(`  启动时间: ${new Date(info.startedAt).toLocaleString('zh-CN')}`));
     console.log(chalk.gray(`  开机启动: ${isBootRegistered() ? '已启用' : '未启用'}`));
 
     // 获取详细状态
-    const status = await getClientStatus();
+    const status = await getClientStatus(info.adminPort);
     if (status) {
       const uptime = Math.floor(status.uptime / 1000);
       const minutes = Math.floor(uptime / 60);
@@ -520,7 +552,9 @@ proxiesCmd.command('add')
 
     // 通过 API 添加
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -567,7 +601,9 @@ proxiesCmd.command('remove')
 
     // 通过 API 删除
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies/${port}`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies/${port}`, {
         method: 'DELETE',
       });
 
@@ -599,7 +635,9 @@ proxiesCmd.command('clear')
   .description('清空所有代理映射')
   .action(async () => {
     try {
-      const res = await fetch(`${ADMIN_URL}/_ctc/proxies`, {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/proxies`, {
         method: 'DELETE',
       });
 
@@ -730,6 +768,180 @@ configCmd.command('edit')
     } catch (err: any) {
       console.log(chalk.yellow(`打开失败: ${err.message}`));
       console.log(chalk.gray(`请手动打开：`));
+    }
+  });
+
+// ==================== forward 命令（正向穿透模式）====================
+
+const forwardCmd = program.command('forward')
+  .description('管理正向穿透代理（本地端口 -> 远程客户端端口）')
+  .argument('[command]', '子命令：list, add, remove, clients, register', { default: 'list' });
+
+// forward list 子命令
+forwardCmd.command('list')
+  .description('列出所有正向穿透代理')
+  .action(async () => {
+    try {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/list`);
+      if (!res.ok) {
+        console.log(chalk.yellow('无法获取代理列表（客户端未运行或功能不可用）'));
+        return;
+      }
+      const data = await res.json() as { proxies: Array<{ localPort: number; targetClientId: string; targetPort: number; enabled: boolean }> };
+      const proxies = data.proxies || [];
+
+      if (proxies.length === 0) {
+        console.log(chalk.yellow('暂无正向穿透代理'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('正向穿透代理列表：'));
+      for (const proxy of proxies) {
+        const status = proxy.enabled ? chalk.green('●') : chalk.gray('○');
+        console.log(`  ${status} 本地 :${proxy.localPort} → ${chalk.cyan(proxy.targetClientId)}:${proxy.targetPort}`);
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward add 子命令
+forwardCmd.command('add')
+  .description('添加正向穿透代理')
+  .argument('<mapping>', '映射格式：localPort:remotePort:targetClientId (如: 8080:3000:clientB)')
+  .action(async (mapping) => {
+    const parts = mapping.split(':');
+    if (parts.length !== 3) {
+      console.log(chalk.yellow('参数格式错误，应为：localPort:remotePort:targetClientId'));
+      console.log(chalk.gray('示例：8080:3000:clientB'));
+      return;
+    }
+
+    const localPort = parseInt(parts[0], 10);
+    const targetPort = parseInt(parts[1], 10);
+    const targetClientId = parts[2];
+
+    if (isNaN(localPort) || localPort < 1 || localPort > 65535) {
+      console.log(chalk.yellow('本地端口无效：1-65535'));
+      return;
+    }
+    if (isNaN(targetPort) || targetPort < 1 || targetPort > 65535) {
+      console.log(chalk.yellow('目标端口无效：1-65535'));
+      return;
+    }
+    if (!targetClientId || targetClientId.length === 0) {
+      console.log(chalk.yellow('目标客户端 ID 不能为空'));
+      return;
+    }
+
+    try {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/add`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localPort, targetClientId, targetPort }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('正向穿透代理已添加'));
+        console.log(chalk.gray(`  本地 :${localPort} → ${targetClientId}:${targetPort}`));
+      } else if (res.status === 404) {
+        console.log(chalk.yellow('客户端未运行或功能不可用'));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`添加失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward remove 子命令
+forwardCmd.command('remove')
+  .description('移除正向穿透代理')
+  .argument('<localPort>', '本地端口号')
+  .action(async (localPort) => {
+    const port = parseInt(localPort, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      console.log(chalk.yellow('端口号无效：1-65535'));
+      return;
+    }
+
+    try {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/remove`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ localPort: port }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green(`本地端口 ${port} 的正向穿透代理已移除`));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`移除失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward clients 子命令
+forwardCmd.command('clients')
+  .description('查看在线客户端列表')
+  .action(async () => {
+    try {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/clients`);
+      if (!res.ok) {
+        console.log(chalk.yellow('无法获取客户端列表'));
+        return;
+      }
+      const data = await res.json() as { clients: Array<{ id: string; description?: string; registeredAt: number }> };
+      const clients = data.clients || [];
+
+      if (clients.length === 0) {
+        console.log(chalk.yellow('暂无在线客户端'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('在线客户端列表：'));
+      for (const client of clients) {
+        const desc = client.description ? ` (${client.description})` : '';
+        console.log(`  ${chalk.cyan(client.id)}${desc}`);
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
+    }
+  });
+
+// forward register 子命令
+forwardCmd.command('register')
+  .description('注册到服务器（启用正向穿透模式）')
+  .option('-d, --description <desc>', '客户端描述')
+  .action(async (options) => {
+    try {
+      const info = readPidFile();
+      const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+      const res = await fetch(`http://127.0.0.1:${adminPort}/_ctc/forward/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ description: options.description || '' }),
+      });
+
+      if (res.ok) {
+        console.log(chalk.green('已注册到服务器，正向穿透模式已启用'));
+      } else {
+        const data = await res.json() as { error?: string };
+        console.log(chalk.red(`注册失败: ${data.error || '未知错误'}`));
+      }
+    } catch (err: any) {
+      console.log(chalk.red(`请求失败: ${err.message}`));
     }
   });
 
@@ -865,7 +1077,9 @@ const logsCmd = program.command('logs')
 const openCmd = program.command('open')
   .description('在浏览器中打开管理页面')
   .action(async () => {
-    const adminPage = 'http://127.0.0.1:9001';
+    const info = readPidFile();
+    const adminPort = info?.adminPort ?? ADMIN_PORT_DEFAULT;
+    const adminPage = `http://127.0.0.1:${adminPort}`;
     const openCmd = platform() === 'win32' ? 'start' : 'open';
     console.log(chalk.gray(`打开管理页面: ${adminPage}`));
     try {
