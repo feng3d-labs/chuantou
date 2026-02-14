@@ -185,6 +185,14 @@ async function updateStatus(): Promise<void> {
       registerStatusEl.textContent = `已注册 (ID: ${data.clientId})`;
     }
 
+    // 清理测试状态中不存在的端口
+    const currentPorts = new Set(data.proxies.map((p: any) => p.remotePort));
+    for (const port of proxyTestStatus.keys()) {
+      if (!currentPorts.has(port)) {
+        proxyTestStatus.delete(port);
+      }
+    }
+
     // 更新反向代理列表
     const listEl = document.getElementById('proxiesList');
     if (listEl) {
@@ -417,6 +425,8 @@ async function confirmDelete(): Promise<void> {
       const res = await fetch(`/_ctc/proxies/${deletePort}`, { method: 'DELETE' });
       if (res.ok) {
         showToast('反向代理已删除');
+        // 清理测试状态
+        proxyTestStatus.delete(deletePort);
         updateStatus();
       } else {
         const data = await res.json();
