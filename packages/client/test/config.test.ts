@@ -171,7 +171,7 @@ describe('Config', () => {
       expect(() => config.validate()).toThrow('必须以 ws:// 或 wss:// 开头');
     });
 
-    it('should throw error when proxies array is empty', () => {
+    it('should not throw error when proxies array is empty (support dynamic add via admin page)', () => {
       const config = new Config({
         serverUrl: 'ws://localhost:9000',
         token: 'test-token',
@@ -179,7 +179,7 @@ describe('Config', () => {
         maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
         proxies: [],
       });
-      expect(() => config.validate()).toThrow('至少需要一个代理配置');
+      expect(() => config.validate()).not.toThrow();
     });
 
     it('should throw error when remotePort is invalid', () => {
