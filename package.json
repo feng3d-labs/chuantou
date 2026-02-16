@@ -19,23 +19,22 @@
   ],
   "workspaces": [
     "packages/*",
+    "packages/client/admin-ui",
     "labs/*"
   ],
   "files": [
     "SKILL.md"
   ],
   "scripts": {
-    "install:all": "npm install",
-    "start:server": "npm run start --workspace=packages/server",
-    "start:client": "npm run start --workspace=packages/client",
-    "build": "npm run build -w packages/shared && npm run build -w packages/client && npm run build -w packages/server",
-    "watch": "concurrently -n shared,client,server -c blue,green,yellow \"tsc --watch --pretty -p packages/shared\" \"tsc --watch --pretty -p packages/client\" \"tsc --watch --pretty -p packages/server\"",
+    "build": "npm run build -ws",
+    "watch": "npm run watch -ws",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest run --coverage",
     "version": "node scripts/set-version.js",
-    "clean": "rm -rf node_modules packages/shared/node_modules packages/client/node_modules packages/server/node_modules packages/shared/dist packages/client/dist packages/server/dist"
+    "clean": "npm run clean -ws",
+    "git:clean": "git clean -fdx"
   },
   "author": "",
   "license": "ISC",
@@ -48,6 +47,9 @@
     "url": "https://github.com/feng3d-labs/chuantou/issues"
   },
   "devDependencies": {
-    "concurrently": "^9.2.1"
+    "@types/node": "^20.10.0"
+  },
+  "dependencies": {
+    "@feng3d/chuantou-shared": "workspace:*"
   }
 }

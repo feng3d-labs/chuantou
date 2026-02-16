@@ -20,11 +20,8 @@
 # 启动客户端（连接本地服务器测试）
 npx @feng3d/ctc start -s ws://localhost:9000 -t "my-token" -p "8080:3000:localhost"
 
-# 查询状态
+# 查询状态与代理列表
 npx @feng3d/ctc status
-
-# 列出代理映射
-npx @feng3d/ctc list
 
 # 停止客户端
 npx @feng3d/ctc stop
@@ -32,7 +29,7 @@ npx @feng3d/ctc stop
 
 ## 命令说明
 
-### `start` - 启动客户端
+### `start` - 启动客户端（别名：`ks`）
 
 ```bash
 npx @feng3d/ctc start [选项]
@@ -66,9 +63,10 @@ npx @feng3d/ctc start -s ws://your-server.com:9000 -t "my-token" -p "8080:3000:l
 | `--reconnect-interval <ms>` | 重连间隔（毫秒） | `5000` | `5000` |
 | `--max-reconnect <number>` | 最大重连次数 | `10` | `10` |
 | `--no-daemon` | 前台运行（不作为后台守护进程） | - | - |
+| `--no-autostart` | 不注册开机启动 | - | - |
 | `-o, --open` | 启动后在浏览器中打开管理页面 | - | - |
 
-### `status` - 查询客户端状态
+### `status` - 查询客户端状态与代理列表（别名：`zt`）
 
 ```bash
 npx @feng3d/ctc status
@@ -78,28 +76,18 @@ npx @feng3d/ctc status
 
 ```
 穿透客户端状态
-  运行中: 是
-  服务器: ws://your-server.com:9000
   PID: 12345
+  服务器: ws://your-server.com:9000
+  管理页面: http://127.0.0.1:9001/
+  开机启动: 已启用
+  连接状态: 已认证
   运行时长: 5分30秒
-  代理数量: 2
+  代理映射: 2 个
+    :8080 -> localhost:3000
+    :8081 -> localhost:3001
 ```
 
-### `list` - 列出代理映射
-
-```bash
-npx @feng3d/ctc list
-```
-
-**输出示例：**
-
-```
-当前代理映射:
-  :8080 -> localhost:3000
-  :8081 -> localhost:3001
-```
-
-### `stop` - 停止客户端
+### `stop` - 停止客户端（别名：`tz`）
 
 ```bash
 npx @feng3d/ctc stop

@@ -10,7 +10,7 @@
 
 import { Command } from 'commander';
 import chalk from 'chalk';
-import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync } from 'fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync, openSync, closeSync, existsSync } from 'fs';
 import { join } from 'path';
 import { homedir, platform } from 'os';
 import { request } from 'http';
@@ -18,14 +18,36 @@ import { request as httpsRequest } from 'https';
 import { spawn, execSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { start, stop } from './index.js';
-import { registerBoot, unregisterBoot, isBootRegistered } from './boot.js';
+import { registerBoot, unregisterBoot, isBootRegistered } from '@feng3d/chuantou-shared/boot';
 
-/** PID 文件存放目录路径 */
-const PID_DIR = join(homedir(), '.chuantou');
+/** 数据目录路径 */
+const DATA_DIR = join(homedir(), '.chuantou');
+/** 服务端数据目录路径 */
+const SERVER_DIR = join(DATA_DIR, 'server');
 /** PID 文件完整路径 */
-const PID_FILE = join(PID_DIR, 'server.pid');
+const PID_FILE = join(SERVER_DIR, 'server.pid');
 /** 日志文件路径 */
-const LOG_FILE = join(PID_DIR, 'server.log');
+const LOG_FILE = join(SERVER_DIR, 'server.log');
+/** 默认配置文件路径 */
+const DEFAULT_CONFIG_FILE = join(SERVER_DIR, 'config.json');
+
+/** 服务端配置接口 */
+interface ServerConfig {
+  /** 控制端口 */
+  port: string;
+  /** 监听地址 */
+  host?: string;
+  /** 认证令牌（逗号分隔） */
+  tokens?: string;
+  /** TLS 私钥文件路径 */
+  tlsKey?: string;
+  /** TLS 证书文件路径 */
+  tlsCert?: string;
+  /** 心跳间隔（毫秒） */
+  heartbeatInterval?: string;
+  /** 会话超时（毫秒） */
+  sessionTimeout?: string;
+}
 
 /**
  * PID 文件信息接口
@@ -51,7 +73,7 @@ interface PidInfo {
  * @param info - 需要写入的服务器进程信息
  */
 function writePidFile(info: PidInfo): void {
-  mkdirSync(PID_DIR, { recursive: true });
+  mkdirSync(SERVER_DIR, { recursive: true });
   writeFileSync(PID_FILE, JSON.stringify(info, null, 2));
 }
 
@@ -171,11 +193,10 @@ async function waitForStartup(host: string, port: number, tls: boolean, timeoutM
  * @param url - 需要打开的 URL
  */
 function openBrowser(url: string): void {
-  const os = platform();
   try {
-    if (os === 'win32') {
+    if (platform() === 'win32') {
       execSync(`cmd.exe /c start "" "${url}"`, { stdio: 'ignore' });
-    } else if (os === 'darwin') {
+    } else if (platform() === 'darwin') {
       execSync(`open "${url}"`, { stdio: 'ignore' });
     } else {
       // Linux
@@ -207,6 +228,7 @@ program
 // ====== _serve 命令（隐藏，前台运行，供 start 和开机启动调用）======
 
 const serveCmd = program.command('_serve', { hidden: true }).description('前台运行服务器（内部命令）');
+serveCmd.option('-c, --config <path>', '配置文件路径');
 for (const opt of serverOptions) {
   if (opt.length === 3) {
     serveCmd.option(opt[0], opt[1], opt[2]);
@@ -215,20 +237,46 @@ for (const opt of serverOptions) {
   }
 }
 serveCmd.action(async (options) => {
-  const tls = (options.tlsKey && options.tlsCert)
-    ? { key: readFileSync(options.tlsKey, 'utf-8'), cert: readFileSync(options.tlsCert, 'utf-8') }
+  // 从配置文件读取参数（开机启动时使用默认配置文件）
+  const configPath = options.config || DEFAULT_CONFIG_FILE;
+  let configOpts: ServerConfig | null = null;
+  try {
+    const configContent = readFileSync(configPath, 'utf-8');
+    configOpts = JSON.parse(configContent);
+    console.log(chalk.gray(`从配置文件读取参数: ${configPath}`));
+  } catch {
+    console.log(chalk.yellow(`配置文件不存在，使用命令行参数`));
+  }
+
+  // 命令行参数覆盖配置文件参数
+  const tlsKey = configOpts?.tlsKey || options.tlsKey;
+  const tlsCert = configOpts?.tlsCert || options.tlsCert;
+  const tls = tlsKey && tlsCert
+    ? { key: readFileSync(tlsKey, 'utf-8'), cert: readFileSync(tlsCert, 'utf-8') }
     : undefined;
 
+  // 处理 authTokens：空字符串表示无认证模式
+  const tokensStr = configOpts?.tokens || options.tokens || '';
+  const authTokens = tokensStr ? tokensStr.split(',') : [];
+
   const opts = {
-    host: options.host,
-    controlPort: parseInt(options.port, 10),
-    authTokens: options.tokens ? options.tokens.split(',') : [],
-    heartbeatInterval: parseInt(options.heartbeatInterval, 10),
-    sessionTimeout: parseInt(options.sessionTimeout, 10),
+    host: configOpts?.host || options.host,
+    controlPort: parseInt(configOpts?.port || options.port, 10),
+    authTokens,
+    heartbeatInterval: parseInt(configOpts?.heartbeatInterval || options.heartbeatInterval, 10),
+    sessionTimeout: parseInt(configOpts?.sessionTimeout || options.sessionTimeout, 10),
     tls,
   };
 
-  const server = await start(opts);
+  let server: Awaited<ReturnType<typeof start>> | null = null;
+
+  try {
+    server = await start(opts);
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(chalk.red('服务器启动失败:', errorMessage));
+    process.exit(1);
+  }
 
   writePidFile({
     pid: process.pid,
@@ -243,19 +291,38 @@ serveCmd.action(async (options) => {
   console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
 
   const shutdown = async () => {
-    console.log(chalk.yellow('\n正在关闭...'));
-    await stop(server);
-    removePidFile();
+    try {
+      if (server) await stop(server);
+    } catch {
+      // 忽略停止时的错误
+    }
+    try {
+      removePidFile();
+    } catch {
+      // 忽略清理 PID 文件的错误
+    }
     process.exit(0);
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+
+  // 捕获未处理的错误，确保清理 PID 文件
+  process.on('uncaughtException', async (err) => {
+    console.error(chalk.red('服务器异常:', err.message));
+    await shutdown();
+  });
+
+  process.on('unhandledRejection', async (err) => {
+    console.error(chalk.red('服务器 Promise 拒绝:', err));
+    await shutdown();
+  });
 });
 
 // ====== start 命令（后台守护进程 + 开机启动）======
 
 const startCmd = program.command('start').description('启动服务器（后台运行并注册开机自启动）');
+startCmd.option('-c, --config <path>', '配置文件路径（指定时不允许携带其他参数）');
 for (const opt of serverOptions) {
   if (opt.length === 3) {
     startCmd.option(opt[0], opt[1], opt[2]);
@@ -271,55 +338,166 @@ startCmd.action(async (options) => {
   if (existing) {
     try {
       await httpGet(existing.host, existing.controlPort, '/_chuantou/status', existing.tls);
-      console.log(chalk.yellow('服务器已在运行中'));
+      // 服务器确实在运行，报错退出
+      console.log(chalk.red('服务器已在运行中'));
       console.log(chalk.gray(`  PID: ${existing.pid}`));
       console.log(chalk.gray(`  端口: ${existing.controlPort}`));
-      return;
+      console.log(chalk.yellow('如需重启，请先使用 stop 命令关闭服务器'));
+      process.exit(1);
     } catch {
       // PID 文件残留，清理后继续
       removePidFile();
     }
   }
 
-  // 2. 确保数据目录存在
-  mkdirSync(PID_DIR, { recursive: true });
+  // 2. 确定使用的配置文件路径和读取配置
+  let configPath = DEFAULT_CONFIG_FILE;
+  let useCustomConfig = false;
+  let serverConfig: ServerConfig | null = null;
 
-  // 3. 解析路径
+  if (options.config) {
+    // 指定了配置文件
+    configPath = options.config;
+    useCustomConfig = true;
+
+    // 检查是否同时指定了其他参数（不允许，但 --no-boot 和 --open 除外）
+    // 需要排除参数值（如配置文件路径）
+    const allowedFlags = ['--config', '-c', '--no-boot', '--open', '-o', 'start'];
+    const otherArgs: string[] = [];
+    const args = process.argv.slice(2);
+    for (let i = 0; i < args.length; i++) {
+      const arg = args[i];
+      if (allowedFlags.includes(arg)) {
+        // 如果是带值的选项，跳过下一个参数
+        if (arg === '--config' || arg === '-c') {
+          i++;
+        }
+      } else if (!arg.startsWith('-')) {
+        // 可能是前一个选项的值，已经跳过了
+        continue;
+      } else {
+        otherArgs.push(arg);
+      }
+    }
+    if (otherArgs.length > 0) {
+      console.log(chalk.red('错误: 指定配置文件时不允许携带其他参数'));
+      process.exit(1);
+    }
+
+    // 从配置文件读取
+    try {
+      const configContent = readFileSync(configPath, 'utf-8');
+      serverConfig = JSON.parse(configContent) as ServerConfig;
+      if (!serverConfig.port) {
+        console.log(chalk.red(`错误: 配置文件缺少 port 字段: ${configPath}`));
+        process.exit(1);
+      }
+    } catch {
+      console.log(chalk.red(`错误: 配置文件不存在或格式错误: ${configPath}`));
+      process.exit(1);
+    }
+  } else {
+    // 未指定配置文件，检查是否有命令行参数
+    const hasPortArg = process.argv.includes('--port') || process.argv.includes('-p');
+    const hasHostArg = process.argv.includes('--host') || process.argv.includes('-a');
+    const hasTokensArg = process.argv.includes('--tokens') || process.argv.includes('-t');
+    const hasTlsKeyArg = process.argv.includes('--tls-key');
+    const hasTlsCertArg = process.argv.includes('--tls-cert');
+
+    if (!hasPortArg && !hasHostArg && !hasTokensArg && !hasTlsKeyArg && !hasTlsCertArg) {
+      // 没有任何参数，尝试使用默认配置文件
+      try {
+        const configContent = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+        serverConfig = JSON.parse(configContent) as ServerConfig;
+        if (!serverConfig.port) {
+          console.log(chalk.red('错误: 配置文件缺少 port 字段'));
+          process.exit(1);
+        }
+      } catch {
+        console.log(chalk.red('错误: 必须指定参数（--port 或使用配置文件）'));
+        process.exit(1);
+      }
+    }
+  }
+
+  // 3. 确定最终使用的 host、port、tls 等参数
+  // 优先级：命令行参数 > 配置文件 > 默认值
+  const controlPort = parseInt((options.port || serverConfig?.port || '9000') as string, 10);
+  const host = options.host || serverConfig?.host || '0.0.0.0';
+  const tls = !!(options.tlsKey && options.tlsCert) || !!(serverConfig?.tlsKey && serverConfig?.tlsCert);
+
+  // 4. 确保数据目录存在
+  mkdirSync(SERVER_DIR, { recursive: true });
+
+  // 5. 解析路径
   const scriptPath = fileURLToPath(import.meta.url);
   const nodePath = process.execPath;
 
-  // 4. 构建 _serve 参数
+  // 6. 构建 _serve 参数（优先使用 --config 指向配置文件）
   const serveArgs: string[] = [];
-  serveArgs.push('--port', options.port);
-  serveArgs.push('--host', options.host);
-  if (options.tokens) serveArgs.push('--tokens', options.tokens);
-  if (options.tlsKey) serveArgs.push('--tls-key', options.tlsKey);
-  if (options.tlsCert) serveArgs.push('--tls-cert', options.tlsCert);
-  serveArgs.push('--heartbeat-interval', options.heartbeatInterval);
-  serveArgs.push('--session-timeout', options.sessionTimeout);
+  const bootConfigPath = useCustomConfig ? configPath : DEFAULT_CONFIG_FILE;
+  serveArgs.push('--config', bootConfigPath);
 
-  // 5. 打开日志文件
+  // 如果使用命令行参数，保存到默认配置文件
+  if (!useCustomConfig && (options.port || options.host || options.tokens || options.tlsKey || options.tlsCert)) {
+    const configToSave: ServerConfig = { port: options.port || serverConfig?.port || '9000' };
+    if (options.host || serverConfig?.host) configToSave.host = options.host || serverConfig?.host;
+    if (options.tokens || serverConfig?.tokens) configToSave.tokens = options.tokens || serverConfig?.tokens;
+    if (options.tlsKey || serverConfig?.tlsKey) configToSave.tlsKey = options.tlsKey || serverConfig?.tlsKey;
+    if (options.tlsCert || serverConfig?.tlsCert) configToSave.tlsCert = options.tlsCert || serverConfig?.tlsCert;
+    if (options.heartbeatInterval || serverConfig?.heartbeatInterval) configToSave.heartbeatInterval = options.heartbeatInterval || serverConfig?.heartbeatInterval;
+    if (options.sessionTimeout || serverConfig?.sessionTimeout) configToSave.sessionTimeout = options.sessionTimeout || serverConfig?.sessionTimeout;
+    writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(configToSave, null, 2));
+    console.log(chalk.gray(`配置已保存到: ${DEFAULT_CONFIG_FILE}`));
+  }
+
+  // 7. 打开日志文件
   const logFd = openSync(LOG_FILE, 'a');
 
-  // 6. 启动后台守护进程
+  // 8. 启动后台守护进程
   const child = spawn(nodePath, [scriptPath, '_serve', ...serveArgs], {
     detached: true,
     stdio: ['ignore', logFd, logFd],
   });
 
+  // 立即写入 PID 文件（子进程启动后会覆盖），防止重复启动
+  if (child.pid !== undefined) {
+    writePidFile({
+      pid: child.pid,
+      host,
+      controlPort,
+      tls,
+    });
+  }
+
   child.unref();
   closeSync(logFd);
 
-  // 7. 等待服务器启动
-  const controlPort = parseInt(options.port, 10);
-  const host = options.host;
-  const tls = !!(options.tlsKey && options.tlsCert);
-
-  const started = await waitForStartup(host, controlPort, tls, 10000);
+  let started = false;
+  try {
+    started = await waitForStartup(host, controlPort, tls, 10000);
+  } catch {
+    // waitForStartup 不会抛错，这里只是为了保险
+  }
 
   if (!started) {
+    // 启动失败，清理 PID 文件
+    removePidFile();
     console.log(chalk.red('服务器启动失败，请查看日志文件:'));
     console.log(chalk.gray(`  ${LOG_FILE}`));
+
+    // 尝试显示日志内容以便诊断
+    try {
+      const logContent = readFileSync(LOG_FILE, 'utf-8');
+      const recentLogs = logContent.split('\n').slice(-20).join('\n');
+      if (recentLogs.trim()) {
+        console.log(chalk.gray('\n最近日志:'));
+        console.log(chalk.gray(recentLogs));
+      }
+    } catch {
+      // 无法读取日志，忽略
+    }
+
     process.exit(1);
   }
 
@@ -330,7 +508,14 @@ startCmd.action(async (options) => {
   console.log(chalk.gray(`  TLS: ${tls ? '已启用' : '已禁用'}`));
   console.log(chalk.gray(`  日志: ${LOG_FILE}`));
 
-  // 8. 打开浏览器
+  // 打印控制台网站地址
+  const protocol = tls ? 'https' : 'http';
+  const adminUrl = host === '0.0.0.0'
+    ? `${protocol}://127.0.0.1:${controlPort}/`
+    : `${protocol}://${host}:${controlPort}/`;
+  console.log(chalk.blue(`\n控制台: ${adminUrl}`));
+
+  // 9. 打开浏览器
   if (options.open) {
     const protocol = tls ? 'https' : 'http';
     const url = host === '0.0.0.0'
@@ -339,10 +524,11 @@ startCmd.action(async (options) => {
     openBrowser(url);
   }
 
-  // 9. 注册开机启动
+  // 10. 注册开机启动
   if (options.boot !== false) {
     try {
       registerBoot({
+        isServer: true,
         nodePath,
         scriptPath,
         args: serveArgs,
@@ -370,6 +556,11 @@ program
       const data = await httpGet(pidInfo.host, pidInfo.controlPort, '/_chuantou/status', pidInfo.tls);
       const status = JSON.parse(data);
 
+      const protocol = pidInfo.tls ? 'https' : 'http';
+      const adminUrl = pidInfo.host === '0.0.0.0'
+        ? `${protocol}://127.0.0.1:${pidInfo.controlPort}/`
+        : `${protocol}://${pidInfo.host}:${pidInfo.controlPort}/`;
+
       console.log(chalk.blue.bold('穿透服务器状态'));
       console.log(chalk.gray(`  运行中: ${status.running ? chalk.green('是') : chalk.red('否')}`));
       console.log(chalk.gray(`  主机: ${status.host}:${status.controlPort}`));
@@ -379,6 +570,9 @@ program
       console.log(chalk.gray(`  端口: ${status.totalPorts}`));
       console.log(chalk.gray(`  连接数: ${status.activeConnections}`));
       console.log(chalk.gray(`  开机自启: ${isBootRegistered() ? chalk.green('已注册') : '未注册'}`));
+      console.log(chalk.blue(`\n控制台: ${adminUrl}`));
+      console.log(chalk.dim(`  配置: ${DEFAULT_CONFIG_FILE}`));
+      console.log(chalk.dim(`  日志: ${LOG_FILE}`));
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();
@@ -386,11 +580,11 @@ program
     }
   });
 
-// ====== stop 命令 ======
+// ====== stop 命令（原 close 命令）======
 
 program
   .command('stop')
-  .description('停止服务器并取消开机自启动')
+  .description('关闭服务器并取消开机自启动')
   .action(async () => {
     const pidInfo = readPidFile();
     if (!pidInfo) {
@@ -401,7 +595,7 @@ program
     try {
       await httpPost(pidInfo.host, pidInfo.controlPort, '/_chuantou/stop', pidInfo.tls);
       removePidFile();
-      console.log(chalk.green('服务器已停止'));
+      console.log(chalk.green('服务器已关闭'));
     } catch {
       console.log(chalk.red('无法连接到服务器，服务器可能未在运行。'));
       removePidFile();
@@ -409,13 +603,316 @@ program
 
     // 取消开机启动
     try {
-      if (isBootRegistered()) {
-        unregisterBoot();
-        console.log(chalk.green('已取消开机自启动'));
-      }
+      unregisterBoot();
     } catch (err) {
       console.log(chalk.yellow(`取消开机自启动失败: ${err instanceof Error ? err.message : err}`));
     }
+    console.log(chalk.green('已取消开机自启动'));
+  });
+
+// ====== restart 命令 ======
+
+program
+  .command('restart')
+  .description('重启服务器')
+  .action(async () => {
+    const pidInfo = readPidFile();
+    if (!pidInfo) {
+      console.log(chalk.yellow('服务器未在运行，请使用 start 命令启动'));
+      process.exit(1);
+    }
+
+    console.log(chalk.gray('正在重启服务器...'));
+
+    // 先停止
+    try {
+      await httpPost(pidInfo.host, pidInfo.controlPort, '/_chuantou/stop', pidInfo.tls);
+      removePidFile();
+      console.log(chalk.green('服务器已停止'));
+    } catch {
+      console.log(chalk.yellow('服务器未响应，继续启动...'));
+      removePidFile();
+    }
+
+    // 等待进程结束
+    await new Promise(resolve => setTimeout(resolve, 1000));
+
+    // 检查配置文件是否存在
+    let configExists = false;
+    try {
+      if (existsSync(DEFAULT_CONFIG_FILE)) {
+        const configContent = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+        const configOpts = JSON.parse(configContent);
+        if (configOpts.port) {
+          configExists = true;
+        }
+      }
+    } catch {
+      // 配置文件不存在或无效
+    }
+
+    if (!configExists) {
+      console.log(chalk.yellow('配置文件无效或不存在，请使用 start 命令手动启动'));
+      process.exit(1);
+    }
+
+    // 使用配置文件启动
+    const scriptPath = fileURLToPath(import.meta.url);
+    const nodePath = process.execPath;
+    const logFd = openSync(LOG_FILE, 'a');
+
+    const child = spawn(nodePath, [scriptPath, '_serve', '--config', DEFAULT_CONFIG_FILE], {
+      detached: true,
+      stdio: ['ignore', logFd, logFd],
+    });
+
+    writePidFile({
+      pid: child.pid!,
+      host: pidInfo.host,
+      controlPort: pidInfo.controlPort,
+      tls: pidInfo.tls,
+    });
+
+    child.unref();
+    closeSync(logFd);
+
+    // 等待启动
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // 检查启动状态
+    const newPidInfo = readPidFile();
+    if (newPidInfo) {
+      try {
+        await httpGet(newPidInfo.host, newPidInfo.controlPort, '/_chuantou/status', newPidInfo.tls);
+        console.log(chalk.green('服务器已重启'));
+        console.log(chalk.gray(`  PID: ${child.pid}`));
+      } catch {
+        console.log(chalk.red('服务器启动失败，请查看日志文件'));
+        console.log(chalk.gray(`  ${LOG_FILE}`));
+        process.exit(1);
+      }
+    }
+  });
+
+// ====== sessions 命令 ======
+
+const sessionsCmd = program.command('sessions').description('管理客户端会话');
+
+sessionsCmd
+  .command('list')
+  .description('列出所有客户端会话')
+  .action(async () => {
+    const pidInfo = readPidFile();
+    if (!pidInfo) {
+      console.log(chalk.red('未找到正在运行的服务器'));
+      process.exit(1);
+    }
+
+    try {
+      const data = await httpGet(pidInfo.host, pidInfo.controlPort, '/_chuantou/sessions', pidInfo.tls);
+      const sessions = JSON.parse(data);
+
+      if (sessions.length === 0) {
+        console.log(chalk.yellow('暂无客户端连接'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('客户端会话列表:'));
+      for (const session of sessions) {
+        const shortId = session.clientId.slice(0, 8);
+        const connectTime = new Date(session.connectedAt).toLocaleString('zh-CN');
+        const ports = session.registeredPorts.length > 0
+          ? `端口: [${session.registeredPorts.join(', ')}]`
+          : '无注册端口';
+        console.log(chalk.gray(`  ${shortId}... - 连接于 ${connectTime} - ${ports}`));
+      }
+    } catch (e) {
+      console.log(chalk.red('获取会话列表失败'));
+      process.exit(1);
+    }
+  });
+
+sessionsCmd
+  .command('disconnect <clientId>')
+  .description('断开指定客户端会话')
+  .action(async (clientId) => {
+    const pidInfo = readPidFile();
+    if (!pidInfo) {
+      console.log(chalk.red('未找到正在运行的服务器'));
+      process.exit(1);
+    }
+
+    try {
+      const data = await httpPost(
+        pidInfo.host,
+        pidInfo.controlPort,
+        `/_chuantou/sessions/${encodeURIComponent(clientId)}/disconnect`,
+        pidInfo.tls
+      );
+      const result = JSON.parse(data);
+      if (result.success) {
+        console.log(chalk.green('客户端已断开连接'));
+      } else {
+        console.log(chalk.red(`断开失败: ${result.error}`));
+        process.exit(1);
+      }
+    } catch (e) {
+      console.log(chalk.red('断开客户端失败'));
+      process.exit(1);
+    }
+  });
+
+// ====== ports 命令 ======
+
+program
+  .command('ports')
+  .description('列出所有端口映射')
+  .action(async () => {
+    const pidInfo = readPidFile();
+    if (!pidInfo) {
+      console.log(chalk.red('未找到正在运行的服务器'));
+      process.exit(1);
+    }
+
+    try {
+      const data = await httpGet(pidInfo.host, pidInfo.controlPort, '/_chuantou/ports', pidInfo.tls);
+      const result = JSON.parse(data);
+
+      if (!result.ports || result.ports.length === 0) {
+        console.log(chalk.yellow('暂无端口映射'));
+        return;
+      }
+
+      console.log(chalk.blue.bold('端口映射列表:'));
+      for (const port of result.ports) {
+        const shortId = port.clientId.slice(0, 8);
+        console.log(chalk.gray(`  端口 ${chalk.green(':' + port.port)} - 客户端 ${shortId}... - ${port.connections} 连接`));
+      }
+    } catch (e) {
+      console.log(chalk.red('获取端口列表失败'));
+      process.exit(1);
+    }
+  });
+
+// ====== logs 命令 ======
+
+program
+  .command('logs')
+  .description('查看或跟踪日志')
+  .option('-f, --follow', '跟踪日志输出（类似 tail -f）')
+  .action(async (options) => {
+    if (!existsSync(LOG_FILE)) {
+      console.log(chalk.yellow('日志文件不存在'));
+      return;
+    }
+
+    if (options.follow) {
+      // 跟踪模式
+      const { spawn } = await import('child_process');
+      const tail = spawn('tail', ['-f', LOG_FILE], { stdio: 'inherit' });
+      tail.on('error', () => {
+        console.log(chalk.yellow('tail 命令不可用，显示最后 50 行日志'));
+        const content = readFileSync(LOG_FILE, 'utf-8');
+        const lines = content.split('\n').slice(-50);
+        console.log(lines.join('\n'));
+      });
+    } else {
+      // 显示最后 50 行
+      const content = readFileSync(LOG_FILE, 'utf-8');
+      const lines = content.split('\n').slice(-50);
+      console.log(lines.join('\n'));
+    }
+  });
+
+// ====== config 命令 ======
+
+const configCmd = program.command('config').description('管理配置文件');
+
+configCmd
+  .command('get [key]')
+  .description('获取配置项')
+  .action(async (key) => {
+    try {
+      const content = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+      const config = JSON.parse(content);
+
+      if (key) {
+        if (key in config) {
+          console.log(chalk.gray(`${key}: ${JSON.stringify(config[key])}`));
+        } else {
+          console.log(chalk.yellow(`配置项 ${key} 不存在`));
+        }
+      } else {
+        console.log(chalk.gray(JSON.stringify(config, null, 2)));
+      }
+    } catch {
+      console.log(chalk.yellow('配置文件不存在或格式错误'));
+    }
+  });
+
+configCmd
+  .command('set <key> <value>')
+  .description('设置配置项')
+  .action(async (key, value) => {
+    try {
+      let config: any = {};
+      try {
+        const content = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+        config = JSON.parse(content);
+      } catch {
+        // 配置文件不存在，创建新配置
+      }
+
+      // 尝试解析值
+      if (value === 'true') value = true;
+      else if (value === 'false') value = false;
+      else if (!isNaN(Number(value))) value = Number(value);
+
+      config[key] = value;
+      mkdirSync(SERVER_DIR, { recursive: true });
+      writeFileSync(DEFAULT_CONFIG_FILE, JSON.stringify(config, null, 2));
+      console.log(chalk.green(`配置已更新: ${key} = ${value}`));
+    } catch (e) {
+      console.log(chalk.red('设置配置失败'));
+      process.exit(1);
+    }
+  });
+
+configCmd
+  .command('list')
+  .description('列出所有配置')
+  .action(async () => {
+    try {
+      const content = readFileSync(DEFAULT_CONFIG_FILE, 'utf-8');
+      const config = JSON.parse(content);
+      console.log(chalk.blue.bold('配置项:'));
+      for (const [key, value] of Object.entries(config)) {
+        console.log(chalk.gray(`  ${key}: ${JSON.stringify(value)}`));
+      }
+    } catch {
+      console.log(chalk.yellow('配置文件不存在或格式错误'));
+    }
+  });
+
+// ====== open 命令 ======
+
+program
+  .command('open')
+  .description('在浏览器中打开管理页面')
+  .action(async () => {
+    const pidInfo = readPidFile();
+    if (!pidInfo) {
+      console.log(chalk.red('未找到正在运行的服务器'));
+      process.exit(1);
+    }
+
+    const protocol = pidInfo.tls ? 'https' : 'http';
+    const url = pidInfo.host === '0.0.0.0'
+      ? `${protocol}://127.0.0.1:${pidInfo.controlPort}/`
+      : `${protocol}://${pidInfo.host}:${pidInfo.controlPort}/`;
+
+    console.log(chalk.gray(`打开管理页面: ${url}`));
+    openBrowser(url);
   });
 
 program.parse();

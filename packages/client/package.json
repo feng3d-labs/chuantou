@@ -17,8 +17,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc",
+    "build": "pnpm --filter @feng3d/ctc-ui run build && tsc",
+    "build:admin-ui": "cd admin-ui && pnpm run build",
     "watch": "tsc --watch --pretty",
+    "clean": "rm -rf dist",
     "test": "vitest run",
     "test:watch": "vitest watch",
     "test:coverage": "vitest run --coverage"

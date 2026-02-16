@@ -1,0 +1,17 @@
+{
+  "name": "@feng3d/cts-server-ui",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Admin UI for feng3d-cts server",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc && pnpm run copy:assets",
+    "copy:assets": "cp src/*.html src/*.css dist/",
+    "clean": "rm -rf dist",
+    "watch": "tsc --watch"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

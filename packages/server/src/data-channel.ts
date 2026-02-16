@@ -39,6 +39,8 @@ export class DataChannelManager extends EventEmitter {
   private frameParsers: Map<string, FrameParser> = new Map();
   /** 客户端 UDP 地址：clientId → RemoteInfo */
   private udpClients: Map<string, RemoteInfo> = new Map();
+  /** UDP 地址反向索引：addr:port → clientId（O(1) 查找） */
+  private udpClientIndex: Map<string, string> = new Map();
   /** 服务端 UDP socket 引用 */
   private udpSocket: UdpSocket | null = null;
   /** 会话管理器 */
@@ -90,7 +92,13 @@ export class DataChannelManager extends EventEmitter {
       this.frameParsers.get(clientId)?.reset();
     }
 
-    // 建立新的数据通道
+    // 建立新的数据通道 — error handler 必须最先注册
+    socket.on('error', (error) => {
+      logger.error(`客户端 ${clientId} 数据通道错误:`, error.message);
+      this.tcpChannels.delete(clientId);
+      this.frameParsers.delete(clientId);
+    });
+
     socket.write(AUTH_RESPONSE.SUCCESS);
     this.tcpChannels.set(clientId, socket);
 
@@ -107,12 +115,6 @@ export class DataChannelManager extends EventEmitter {
 
     socket.on('close', () => {
       logger.log(`客户端 ${clientId} 数据通道已关闭`);
-      this.tcpChannels.delete(clientId);
-      this.frameParsers.delete(clientId);
-    });
-
-    socket.on('error', (error) => {
-      logger.error(`客户端 ${clientId} 数据通道错误:`, error.message);
       this.tcpChannels.delete(clientId);
       this.frameParsers.delete(clientId);
     });
@@ -135,9 +137,14 @@ export class DataChannelManager extends EventEmitter {
       if (control.type === 'register') {
         this.handleUdpRegister(control.clientId, rinfo);
       }
-      // keepalive 只需更新地址
+      // keepalive 更新地址和反向索引
       if (control.type === 'keepalive') {
+        const oldRinfo = this.udpClients.get(control.clientId);
+        if (oldRinfo) {
+          this.udpClientIndex.delete(`${oldRinfo.address}:${oldRinfo.port}`);
+        }
         this.udpClients.set(control.clientId, rinfo);
+        this.udpClientIndex.set(`${rinfo.address}:${rinfo.port}`, control.clientId);
       }
       return;
     }
@@ -145,15 +152,13 @@ export class DataChannelManager extends EventEmitter {
     // 尝试解析为数据帧
     const frame = parseUdpDataFrame(msg);
     if (frame) {
-      // 查找此连接所属的客户端
-      // 通过遍历已注册的 UDP 客户端，匹配发送方地址
-      for (const [clientId, clientRinfo] of this.udpClients) {
-        if (clientRinfo.address === rinfo.address && clientRinfo.port === rinfo.port) {
-          this.emit('udpData', clientId, frame.connectionId, frame.data);
-          return;
-        }
+      // 通过反向索引 O(1) 查找客户端
+      const clientId = this.udpClientIndex.get(`${rinfo.address}:${rinfo.port}`);
+      if (clientId) {
+        this.emit('udpData', clientId, frame.connectionId, frame.data);
+      } else {
+        logger.warn(`收到未知来源的 UDP 数据帧: ${rinfo.address}:${rinfo.port}`);
       }
-      logger.warn(`收到未知来源的 UDP 数据帧: ${rinfo.address}:${rinfo.port}`);
     }
   }
 
@@ -164,7 +169,14 @@ export class DataChannelManager extends EventEmitter {
       return;
     }
 
+    // 清理旧的反向索引
+    const oldRinfo = this.udpClients.get(clientId);
+    if (oldRinfo) {
+      this.udpClientIndex.delete(`${oldRinfo.address}:${oldRinfo.port}`);
+    }
+
     this.udpClients.set(clientId, rinfo);
+    this.udpClientIndex.set(`${rinfo.address}:${rinfo.port}`, clientId);
 
     // 发送确认
     if (this.udpSocket) {
@@ -185,10 +197,17 @@ export class DataChannelManager extends EventEmitter {
   sendToClient(clientId: string, connectionId: string, data: Buffer): boolean {
     const socket = this.tcpChannels.get(clientId);
     if (socket && !socket.destroyed) {
-      socket.write(writeDataFrame(connectionId, data));
-      return true;
+      return socket.write(writeDataFrame(connectionId, data));
     }
     return false;
+  }
+
+  /**
+   * 获取客户端的 TCP 数据通道 socket（用于 drain 背压处理）
+   */
+  getClientTcpSocket(clientId: string): Socket | null {
+    const socket = this.tcpChannels.get(clientId);
+    return socket && !socket.destroyed ? socket : null;
   }
 
   /**
@@ -234,6 +253,10 @@ export class DataChannelManager extends EventEmitter {
       this.tcpChannels.delete(clientId);
     }
     this.frameParsers.delete(clientId);
+    const rinfo = this.udpClients.get(clientId);
+    if (rinfo) {
+      this.udpClientIndex.delete(`${rinfo.address}:${rinfo.port}`);
+    }
     this.udpClients.delete(clientId);
   }
 
@@ -247,5 +270,6 @@ export class DataChannelManager extends EventEmitter {
     this.tcpChannels.clear();
     this.frameParsers.clear();
     this.udpClients.clear();
+    this.udpClientIndex.clear();
   }
 }

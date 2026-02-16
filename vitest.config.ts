@@ -6,6 +6,9 @@ export default defineConfig({
     environment: 'node',
     include: ['tests/**/*.test.ts', 'test/**/*.test.ts', 'test/**/*.test.js', 'packages/*/test/**/*.test.ts'],
     testTimeout: 15000,
+    alias: {
+      '@feng3d/chuantou-shared/boot': '@feng3d/chuantou-shared/src/boot.ts',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'json', 'html'],

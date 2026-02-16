@@ -119,8 +119,8 @@ describe('Config', () => {
 
       process.argv = ['node', 'cli.js'];
       const config = await Config.load();
-      expect(config.serverUrl).toBeTruthy();
-      expect(config.token).toBeTruthy();
+      expect(config.serverUrl).toBe('ws://localhost:9000');
+      expect(config.token).toBe('');
     });
 
     it('should override file config with command line args', async () => {
@@ -160,17 +160,6 @@ describe('Config', () => {
       expect(() => config.validate()).toThrow('服务器地址是必需的');
     });
 
-    it('should throw error when token is empty', () => {
-      const config = new Config({
-        serverUrl: 'ws://localhost:9000',
-        token: '',
-        reconnectInterval: DEFAULT_CONFIG.RECONNECT_INTERVAL,
-        maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
-        proxies: [{ remotePort: 8080, localPort: 3000, localHost: 'localhost' }],
-      });
-      expect(() => config.validate()).toThrow('认证令牌是必需的');
-    });
-
     it('should throw error when serverUrl does not start with ws:// or wss://', () => {
       const config = new Config({
         serverUrl: 'http://localhost:9000',
@@ -182,7 +171,7 @@ describe('Config', () => {
       expect(() => config.validate()).toThrow('必须以 ws:// 或 wss:// 开头');
     });
 
-    it('should throw error when proxies array is empty', () => {
+    it('should not throw error when proxies array is empty (support dynamic add via admin page)', () => {
       const config = new Config({
         serverUrl: 'ws://localhost:9000',
         token: 'test-token',
@@ -190,7 +179,7 @@ describe('Config', () => {
         maxReconnectAttempts: DEFAULT_CONFIG.MAX_RECONNECT_ATTEMPTS,
         proxies: [],
       });
-      expect(() => config.validate()).toThrow('至少需要一个代理配置');
+      expect(() => config.validate()).not.toThrow();
     });
 
     it('should throw error when remotePort is invalid', () => {

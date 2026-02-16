@@ -19,6 +19,30 @@ export const CLIENT_ID_LENGTH = 36;
 export const FRAME_LENGTH_SIZE = 4;
 
 /**
+ * connectionId → UTF-8 Buffer 编码缓存
+ *
+ * 避免每帧都重新 UTF-8 编码 36 字节的 UUID 字符串。
+ */
+const connectionIdBufferCache = new Map<string, Buffer>();
+
+function getConnectionIdBuffer(connectionId: string): Buffer {
+  let buf = connectionIdBufferCache.get(connectionId);
+  if (!buf) {
+    buf = Buffer.alloc(CONNECTION_ID_LENGTH);
+    buf.write(connectionId, 0, CONNECTION_ID_LENGTH, 'utf-8');
+    connectionIdBufferCache.set(connectionId, buf);
+  }
+  return buf;
+}
+
+/**
+ * 清除 connectionId 的缓存编码（连接关闭时调用）
+ */
+export function clearConnectionIdBuffer(connectionId: string): void {
+  connectionIdBufferCache.delete(connectionId);
+}
+
+/**
  * 数据通道魔数常量
  *
  * 用于在协议复用时区分不同类型的连接和消息。
@@ -62,7 +86,7 @@ export function writeDataFrame(connectionId: string, data: Buffer): Buffer {
   const payloadLength = CONNECTION_ID_LENGTH + data.length;
   const buf = Buffer.alloc(FRAME_LENGTH_SIZE + payloadLength);
   buf.writeUInt32BE(payloadLength, 0);
-  buf.write(connectionId, FRAME_LENGTH_SIZE, CONNECTION_ID_LENGTH, 'utf-8');
+  getConnectionIdBuffer(connectionId).copy(buf, FRAME_LENGTH_SIZE);
   data.copy(buf, FRAME_LENGTH_SIZE + CONNECTION_ID_LENGTH);
   return buf;
 }
@@ -89,7 +113,11 @@ export class FrameParser extends EventEmitter {
    * @param chunk - 从 TCP 流接收到的数据块
    */
   push(chunk: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, chunk]);
+    if (this.buffer.length === 0) {
+      this.buffer = chunk;
+    } else {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+    }
     this.parse();
   }
 
@@ -156,7 +184,7 @@ export function writeUdpKeepaliveFrame(clientId: string): Buffer {
  */
 export function writeUdpDataFrame(connectionId: string, data: Buffer): Buffer {
   const buf = Buffer.alloc(CONNECTION_ID_LENGTH + data.length);
-  buf.write(connectionId, 0, CONNECTION_ID_LENGTH, 'utf-8');
+  getConnectionIdBuffer(connectionId).copy(buf, 0);
   data.copy(buf, CONNECTION_ID_LENGTH);
   return buf;
 }
@@ -177,7 +205,7 @@ export function parseUdpDataFrame(buffer: Buffer): { connectionId: string; data:
 
   const connectionId = buffer.toString('utf-8', 0, CONNECTION_ID_LENGTH);
   const data = buffer.subarray(CONNECTION_ID_LENGTH);
-  return { connectionId, data: Buffer.from(data) };
+  return { connectionId, data };
 }
 
 /**

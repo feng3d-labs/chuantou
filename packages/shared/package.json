@@ -8,6 +8,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./boot": {
+      "import": "./dist/boot.js",
+      "types": "./dist/boot.d.ts"
     }
   },
   "files": [
@@ -15,9 +19,12 @@
   ],
   "scripts": {
     "build": "tsc",
-    "watch": "tsc --watch --pretty"
+    "watch": "tsc --watch --pretty",
+    "clean": "rm -rf dist",
+    "test": "tsc --pretty && node -e \"require('typescript').default({}).test()\""
   },
   "devDependencies": {
+    "@types/node": "^20.10.0",
     "typescript": "^5.3.3"
   }
 }

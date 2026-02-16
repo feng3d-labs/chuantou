@@ -2,10 +2,17 @@
  * @module admin-server
  * @description 客户端管理页面 HTTP 服务器模块。
  * 提供一个本地 HTTP 服务，用于查看客户端状态和管理代理映射。
+ * 支持反向代理模式和正向穿透模式。
  */
 
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { ProxyConfig } from '@feng3d/chuantou-shared';
+import { readFile } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+import { ProxyConfig, ForwardProxyEntry } from '@feng3d/chuantou-shared';
+
+// 重新导出 ForwardProxyEntry 供其他模块使用
+export type { ForwardProxyEntry };
 
 /**
  * 客户端状态信息接口
@@ -25,6 +32,12 @@ export interface ClientStatus {
   proxies: ProxyConfig[];
   /** 重连次数 */
   reconnectAttempts: number;
+  /** 正向穿透代理列表 */
+  forwardProxies?: Array<{ localPort: number; targetClientId: string; targetPort: number }>;
+  /** 客户端是否已注册到服务器（正向穿透模式） */
+  isRegistered?: boolean;
+  /** 当前客户端ID */
+  clientId?: string;
 }
 
 /**
@@ -58,559 +71,55 @@ export class AdminServer {
   private addProxyCallback: (proxy: ProxyConfig) => Promise<void>;
   /** 删除代理回调函数 */
   private removeProxyCallback: (remotePort: number) => Promise<void>;
+  /** 正向穿透代理列表（用于存储运行时的正向穿透配置） */
+  private forwardProxies: Map<string, { localPort: number; targetClientId: string; targetPort: number }> = new Map();
+  /** 发送消息到服务端的回调（用于正向穿透操作） */
+  private sendMessageCallback?: (message: any) => Promise<any>;
+  /** 触发重连的回调函数 */
+  private reconnectCallback?: () => Promise<void>;
+  /** 添加正向穿透代理回调函数 */
+  private addForwardProxyCallback?: (entry: ForwardProxyEntry) => Promise<void>;
+  /** 删除正向穿透代理回调函数 */
+  private removeForwardProxyCallback?: (localPort: number) => Promise<void>;
+  /** 注册客户端回调函数 */
+  private registerClientCallback?: (description?: string) => Promise<void>;
+  /** 获取客户端列表回调函数 */
+  private getClientListCallback?: () => Promise<any>;
 
   /**
-   * 状态页面 HTML 模板
+   * 静态文件路径常量
    */
-  private static readonly STATUS_HTML = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>穿透客户端管理</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh;
-      color: #e0e0e0;
-      padding: 20px;
-    }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-    }
-    .header {
-      text-align: center;
-      margin-bottom: 30px;
-      padding: 30px 20px;
-      background: rgba(255,255,255,0.05);
-      border-radius: 16px;
-      backdrop-filter: blur(10px);
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .header h1 {
-      font-size: 28px;
-      margin-bottom: 8px;
-      background: linear-gradient(90deg, #00d9ff, #00ff88);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-    }
-    .status {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 6px 16px;
-      border-radius: 20px;
-      font-size: 14px;
-      font-weight: 500;
-    }
-    .status.running {
-      background: rgba(0, 255, 136, 0.15);
-      color: #00ff88;
-    }
-    .status.running::before {
-      content: "";
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #00ff88;
-      animation: pulse 1.5s infinite;
-    }
-    .status.stopped {
-      background: rgba(255, 77, 77, 0.15);
-      color: #ff4d4d;
-    }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.4; }
-    }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
-      margin-bottom: 20px;
-    }
-    .card {
-      background: rgba(255,255,255,0.05);
-      border-radius: 12px;
-      padding: 20px;
-      border: 1px solid rgba(255,255,255,0.1);
-      backdrop-filter: blur(10px);
-    }
-    .card-label {
-      font-size: 12px;
-      color: #888;
-      margin-bottom: 6px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .card-value {
-      font-size: 20px;
-      font-weight: 600;
-      color: #fff;
-    }
-    .card-value .unit {
-      font-size: 14px;
-      color: #888;
-      font-weight: 400;
-    }
-    .proxies-section {
-      background: rgba(255,255,255,0.05);
-      border-radius: 12px;
-      padding: 20px;
-      border: 1px solid rgba(255,255,255,0.1);
-      margin-top: 20px;
-    }
-    .section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-    .section-title {
-      font-size: 14px;
-      color: #888;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    .btn {
-      padding: 8px 16px;
-      border-radius: 8px;
-      border: none;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-primary {
-      background: linear-gradient(135deg, #00d9ff, #00ff88);
-      color: #000;
-      font-weight: 500;
-    }
-    .btn-primary:hover {
-      opacity: 0.9;
-      transform: translateY(-1px);
-    }
-    .btn-danger {
-      background: rgba(255, 77, 77, 0.2);
-      color: #ff4d4d;
-      padding: 4px 10px;
-      font-size: 12px;
-    }
-    .btn-danger:hover {
-      background: rgba(255, 77, 77, 0.3);
-    }
-    .proxy-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 12px 16px;
-      background: rgba(0,0,0,0.2);
-      border-radius: 8px;
-      margin-bottom: 8px;
-      font-size: 14px;
-    }
-    .proxy-item:last-child {
-      margin-bottom: 0;
-    }
-    .proxy-info {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-    .proxy-protocol {
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 500;
-      text-transform: uppercase;
-      background: rgba(0, 217, 255, 0.2);
-      color: #00d9ff;
-    }
-    .proxy-remote {
-      color: #00d9ff;
-      font-family: monospace;
-    }
-    .proxy-arrow {
-      color: #666;
-    }
-    .proxy-local {
-      color: #888;
-      font-family: monospace;
-    }
-    .empty-state {
-      text-align: center;
-      padding: 30px;
-      color: #666;
-      font-size: 14px;
-    }
-    .add-form {
-      display: none;
-      background: rgba(0,0,0,0.3);
-      border-radius: 12px;
-      padding: 20px;
-      margin-bottom: 16px;
-    }
-    .add-form.show {
-      display: block;
-    }
-    .form-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr) auto;
-      gap: 12px;
-      align-items: end;
-    }
-    .form-group {
-      display: flex;
-      flex-direction: column;
-      gap: 6px;
-    }
-    .form-group label {
-      font-size: 11px;
-      color: #888;
-      text-transform: uppercase;
-    }
-    .form-group input, .form-group select {
-      padding: 10px 14px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
-      border-radius: 8px;
-      color: #fff;
-      font-size: 14px;
-    }
-    .form-group input:focus, .form-group select:focus {
-      outline: none;
-      border-color: #00d9ff;
-    }
-    .form-actions {
-      display: flex;
-      gap: 8px;
-    }
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(0,0,0,0.7);
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-    }
-    .modal.show {
-      display: flex;
-    }
-    .modal-content {
-      background: #1a1a2e;
-      border-radius: 16px;
-      padding: 30px;
-      max-width: 400px;
-      width: 90%;
-      border: 1px solid rgba(255,255,255,0.1);
-    }
-    .modal-title {
-      font-size: 18px;
-      margin-bottom: 20px;
-      text-align: center;
-    }
-    .modal-actions {
-      display: flex;
-      gap: 12px;
-      margin-top: 20px;
-    }
-    .modal-actions .btn {
-      flex: 1;
-    }
-    .btn-secondary {
-      background: rgba(255,255,255,0.1);
-      color: #fff;
-    }
-    .btn-secondary:hover {
-      background: rgba(255,255,255,0.15);
-    }
-    .last-update {
-      text-align: center;
-      color: #666;
-      font-size: 12px;
-      margin-top: 20px;
-    }
-    .footer {
-      text-align: center;
-      margin-top: 30px;
-      padding: 20px;
-      color: #666;
-      font-size: 12px;
-    }
-    .footer a {
-      color: #00d9ff;
-      text-decoration: none;
-    }
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 12px 20px;
-      border-radius: 8px;
-      font-size: 14px;
-      transform: translateY(100px);
-      opacity: 0;
-      transition: all 0.3s;
-    }
-    .toast.show {
-      transform: translateY(0);
-      opacity: 1;
-    }
-    .toast.success {
-      background: rgba(0, 255, 136, 0.2);
-      color: #00ff88;
-      border: 1px solid rgba(0, 255, 136, 0.3);
-    }
-    .toast.error {
-      background: rgba(255, 77, 77, 0.2);
-      color: #ff4d4d;
-      border: 1px solid rgba(255, 77, 77, 0.3);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>🔌 feng3d-ctc 穿透客户端</h1>
-      <div class="status running" id="status">运行中</div>
-    </div>
+  private static readonly STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'admin-ui', 'dist');
 
-    <div class="grid">
-      <div class="card">
-        <div class="card-label">服务器</div>
-        <div class="card-value" id="server">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">连接状态</div>
-        <div class="card-value" id="connection">-</div>
-      </div>
-      <div class="card">
-        <div class="card-label">运行时长</div>
-        <div class="card-value"><span id="uptime">-</span></div>
-      </div>
-      <div class="card">
-        <div class="card-label">代理数量</div>
-        <div class="card-value"><span id="proxyCount">0</span><span class="unit"> 个</span></div>
-      </div>
-      <div class="card">
-        <div class="card-label">重连次数</div>
-        <div class="card-value"><span id="reconnectCount">0</span><span class="unit"> 次</span></div>
-      </div>
-    </div>
-
-    <div class="proxies-section">
-      <div class="section-header">
-        <div class="section-title">代理映射</div>
-        <button class="btn btn-primary" id="showAddForm">+ 添加代理</button>
-      </div>
-
-      <div class="add-form" id="addForm">
-        <div class="form-row">
-          <div class="form-group">
-            <label>远程端口</label>
-            <input type="number" id="newRemotePort" placeholder="8080" min="1" max="65535">
-          </div>
-          <div class="form-group">
-            <label>本地端口</label>
-            <input type="number" id="newLocalPort" placeholder="3000" min="1" max="65535">
-          </div>
-          <div class="form-group">
-            <label>本地地址</label>
-            <input type="text" id="newLocalHost" placeholder="localhost">
-          </div>
-          <div class="form-actions">
-            <button class="btn btn-primary" id="addProxy">添加</button>
-            <button class="btn btn-secondary" id="cancelAdd">取消</button>
-          </div>
-        </div>
-      </div>
-
-      <div id="proxiesList"></div>
-    </div>
-
-    <div class="last-update">最后更新: <span id="lastUpdate">-</span></div>
-
-    <div class="footer">
-      <a href="https://github.com/feng3d/chuantou" target="_blank">feng3d-ctc</a>
-      — 内网穿透客户端
-    </div>
-  </div>
-
-  <div class="modal" id="deleteModal">
-    <div class="modal-content">
-      <div class="modal-title">确认删除代理</div>
-      <p style="color: #888; text-align: center;">确定要删除此代理映射吗？</p>
-      <div class="modal-actions">
-        <button class="btn btn-secondary" id="cancelDelete">取消</button>
-        <button class="btn btn-danger" id="confirmDelete">删除</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="toast" id="toast"></div>
-
-  <script>
-    let deletePort = null;
-
-    function formatUptime(ms) {
-      const seconds = Math.floor(ms / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      const days = Math.floor(hours / 24);
-      if (days > 0) return \`\${days}天 \${hours % 24}小时\`;
-      if (hours > 0) return \`\${hours}小时 \${minutes % 60}分钟\`;
-      if (minutes > 0) return \`\${minutes}分钟 \${seconds % 60}秒\`;
-      return \`\${seconds}秒\`;
-    }
-
-    function showToast(message, type = 'success') {
-      const toast = document.getElementById('toast');
-      toast.textContent = message;
-      toast.className = \`toast \${type} show\`;
-      setTimeout(() => toast.classList.remove('show'), 3000);
-    }
-
-    async function updateStatus() {
-      try {
-        const res = await fetch('/_ctc/status');
-        const data = await res.json();
-
-        const statusEl = document.getElementById('status');
-        if (data.running) {
-          statusEl.textContent = data.authenticated ? '已连接' : (data.connected ? '认证中...' : '连接中...');
-          statusEl.className = 'status running';
-        } else {
-          statusEl.textContent = '已停止';
-          statusEl.className = 'status stopped';
-        }
-
-        document.getElementById('server').textContent = data.serverUrl.replace('ws://', '').replace('wss://', '');
-        document.getElementById('connection').textContent = data.authenticated ? '已认证' : (data.connected ? '已连接' : '未连接');
-        document.getElementById('uptime').textContent = formatUptime(data.uptime);
-        document.getElementById('proxyCount').textContent = data.proxies.length;
-        document.getElementById('reconnectCount').textContent = data.reconnectAttempts;
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
-
-        // 更新代理列表
-        const listEl = document.getElementById('proxiesList');
-        if (data.proxies.length === 0) {
-          listEl.innerHTML = '<div class="empty-state">暂无代理映射，点击上方按钮添加</div>';
-        } else {
-          listEl.innerHTML = data.proxies.map(p => {
-            return \`
-              <div class="proxy-item">
-                <div class="proxy-info">
-                  <span class="proxy-protocol">ALL</span>
-                  <span class="proxy-remote">:\${p.remotePort}</span>
-                  <span class="proxy-arrow">→</span>
-                  <span class="proxy-local">\${p.localHost || 'localhost'}:\${p.localPort}</span>
-                </div>
-                <button class="btn btn-danger" onclick="showDeleteModal(\${p.remotePort})">删除</button>
-              </div>
-            \`;
-          }).join('');
-        }
-      } catch (e) {
-        console.error('获取状态失败:', e);
-      }
-    }
-
-    function showDeleteModal(port) {
-      deletePort = port;
-      document.getElementById('deleteModal').classList.add('show');
-    }
-
-    document.getElementById('cancelDelete').addEventListener('click', () => {
-      document.getElementById('deleteModal').classList.remove('show');
-      deletePort = null;
-    });
-
-    document.getElementById('confirmDelete').addEventListener('click', async () => {
-      if (deletePort) {
-        try {
-          const res = await fetch(\`/_ctc/proxies/\${deletePort}\`, { method: 'DELETE' });
-          if (res.ok) {
-            showToast('代理已删除');
-            updateStatus();
-          } else {
-            const data = await res.json();
-            showToast(\`删除失败: \${data.error}\`, 'error');
-          }
-        } catch (e) {
-          showToast('删除失败: 网络错误', 'error');
-        }
-      }
-      document.getElementById('deleteModal').classList.remove('show');
-      deletePort = null;
-    });
-
-    document.getElementById('showAddForm').addEventListener('click', () => {
-      document.getElementById('addForm').classList.add('show');
-    });
-
-    document.getElementById('cancelAdd').addEventListener('click', () => {
-      document.getElementById('addForm').classList.remove('show');
-    });
-
-    document.getElementById('addProxy').addEventListener('click', async () => {
-      const remotePort = parseInt(document.getElementById('newRemotePort').value);
-      const localPort = parseInt(document.getElementById('newLocalPort').value);
-      const localHost = document.getElementById('newLocalHost').value || 'localhost';
-
-      if (!remotePort || !localPort) {
-        showToast('请填写完整信息', 'error');
-        return;
-      }
-
-      try {
-        const res = await fetch('/_ctc/proxies', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ remotePort, localPort, localHost })
-        });
-
-        if (res.ok) {
-          showToast('代理已添加');
-          document.getElementById('addForm').classList.remove('show');
-          document.getElementById('newRemotePort').value = '';
-          document.getElementById('newLocalPort').value = '';
-          document.getElementById('newLocalHost').value = 'localhost';
-          updateStatus();
-        } else {
-          const data = await res.json();
-          showToast(\`添加失败: \${data.error}\`, 'error');
-        }
-      } catch (e) {
-        showToast('添加失败: 网络错误', 'error');
-      }
-    });
-
-    updateStatus();
-    setInterval(updateStatus, 3000);
-  </script>
-</body>
-</html>
-`;
+  /**
+   * HTML 模板文件路径
+   */
+  private static readonly TEMPLATE_PATH = join(AdminServer.STATIC_DIR, 'template.html');
 
   /**
    * 创建管理服务器实例
    *
    * @param config - 服务器配置
    * @param getStatus - 获取状态的回调函数
-   * @param addProxy - 添加代理的回调函数
-   * @param removeProxy - 删除代理的回调函数
+   * @param addProxy - 添加反向代理的回调函数
+   * @param removeProxy - 删除反向代理的回调函数
+   * @param addForwardProxy - 添加正向穿透的回调函数
+   * @param removeForwardProxy - 删除正向穿透的回调函数
+   * @param registerClient - 注册客户端的回调函数
+   * @param getClientList - 获取客户端列表的回调函数
+   * @param reconnect - 触发重连的回调函数
    */
   constructor(
     config: AdminServerConfig,
     getStatus: () => ClientStatus,
     addProxy: (proxy: ProxyConfig) => Promise<void>,
-    removeProxy: (remotePort: number) => Promise<void>
+    removeProxy: (remotePort: number) => Promise<void>,
+    addForwardProxy?: (entry: ForwardProxyEntry) => Promise<void>,
+    removeForwardProxy?: (localPort: number) => Promise<void>,
+    registerClient?: (description?: string) => Promise<void>,
+    getClientList?: () => Promise<any>,
+    sendMessage?: (message: any) => Promise<any>,
+    reconnect?: () => Promise<void>
   ) {
     this.port = config.port;
     this.host = config.host;
@@ -618,8 +127,28 @@ export class AdminServer {
     this.getStatusCallback = getStatus;
     this.addProxyCallback = addProxy;
     this.removeProxyCallback = removeProxy;
+    this.addForwardProxyCallback = addForwardProxy;
+    this.removeForwardProxyCallback = removeForwardProxy;
+    this.registerClientCallback = registerClient;
+    this.getClientListCallback = getClientList;
+    this.sendMessageCallback = sendMessage;
+    this.reconnectCallback = reconnect;
 
     this.server = createServer((req, res) => this.handleRequest(req, res));
+  }
+
+  /**
+   * 设置发送消息的回调
+   */
+  setSendMessageCallback(callback: (message: any) => Promise<any>): void {
+    this.sendMessageCallback = callback;
+  }
+
+  /**
+   * 设置重连回调
+   */
+  setReconnectCallback(callback: () => Promise<void>): void {
+    this.reconnectCallback = callback;
   }
 
   /**
@@ -645,18 +174,59 @@ export class AdminServer {
    * 处理 HTTP 请求
    *
    * 提供以下端点：
-   * - `GET /` - 管理页面
-   * - `GET /_ctc/status` - 获取状态
-   * - `POST /_ctc/proxies` - 添加代理
-   * - `DELETE /_ctc/proxies/:port` - 删除代理
+   * 反向代理：
+   *   - `GET /` - 管理页面
+   *   - `GET /_ctc/status` - 获取状态
+   *   - `POST /_ctc/proxies` - 添加反向代理
+   *   - `DELETE /_ctc/proxies/:port` - 删除反向代理
+   *   - `POST /_ctc/test-proxy?port=xxx` - 测试反向代理连接
+   * 正向穿透：
+   *   - `GET /_ctc/forward/list` - 获取正向穿透列表
+   *   - `POST /_ctc/forward/add` - 添加正向穿透
+   *   - `POST /_ctc/forward/remove` - 删除正向穿透
+   *   - `GET /_ctc/forward/clients` - 获取客户端列表
+   *   - `POST /_ctc/forward/register` - 注册到服务器
    */
-  private handleRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
 
-    // 管理页面
+    // 静态文件服务 - 首页读取模板文件
     if (url === '/' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(AdminServer.STATUS_HTML);
+      readFile(AdminServer.TEMPLATE_PATH, 'utf-8', (err, data) => {
+        if (err) {
+          console.error('模板文件读取错误:', err);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Error loading page');
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(data);
+        }
+      });
+      return;
+    }
+
+    // 处理静态文件请求 (支持 .js, .css 等静态资源直接从根路径访问)
+    if (req.method === 'GET' && url !== '/' && !url.startsWith('/_ctc/')) {
+      const fileName = url.slice(1) as string; // 去掉开头的 /
+      const filePath = join(AdminServer.STATIC_DIR, fileName);
+
+      readFile(filePath, 'utf-8', (err, data) => {
+        if (err || !data) {
+          console.error('静态文件读取错误:', err);
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('File not found');
+          return;
+        }
+        const ext = fileName.split('.').pop() || 'html';
+        const contentType = ext === 'css' ? 'text/css; charset=utf-8' :
+                         ext === 'js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600'
+        });
+        res.end(data);
+      });
       return;
     }
 
@@ -668,7 +238,9 @@ export class AdminServer {
       return;
     }
 
-    // 添加代理 API
+    // ==================== 反向代理 API ====================
+
+    // 添加反向代理 API
     if (url === '/_ctc/proxies' && req.method === 'POST') {
       let body = '';
       req.on('data', (chunk) => { body += chunk; });
@@ -687,7 +259,7 @@ export class AdminServer {
       return;
     }
 
-    // 删除代理 API
+    // 删除反向代理 API
     if (url.startsWith('/_ctc/proxies/') && req.method === 'DELETE') {
       const port = parseInt(url.split('/').pop()!, 10);
       if (isNaN(port)) {
@@ -706,6 +278,226 @@ export class AdminServer {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: errorMessage }));
         });
+      return;
+    }
+
+    // 测试反向代理 API
+    if (url.startsWith('/_ctc/test-proxy') && req.method === 'POST') {
+      const urlObj = new URL(url, `http://${req.headers.host}`);
+      const portParam = urlObj.searchParams.get('port');
+      const port = portParam ? parseInt(portParam, 10) : NaN;
+
+      if (isNaN(port)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '无效的端口号' }));
+        return;
+      }
+
+      // 通过 Controller 发送测试请求到服务端，然后测试连接
+      try {
+        // 简单测试：尝试连接本地端口来验证代理是否工作
+        // 实际测试需要通过服务端发起请求，这里只返回成功状态
+        const status = this.getStatusCallback();
+        const proxy = status.proxies.find((p: ProxyConfig) => p.remotePort === port);
+
+        if (!proxy) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: '端口未注册' }));
+          return;
+        }
+
+        // 测试本地端口是否可连接
+        const net = await import('net');
+        const testClient = new net.Socket();
+        let connected = false;
+        let error: string | null = null;
+
+        await new Promise<void>((resolve) => {
+          testClient.connect({ port: proxy.localPort, host: proxy.localHost || 'localhost' }, () => {
+            connected = true;
+            testClient.destroy();
+            resolve();
+          });
+
+          testClient.on('error', (err: any) => {
+            error = err.message;
+            testClient.destroy();
+            resolve();
+          });
+
+          // 2秒超时
+          setTimeout(() => {
+            if (!connected) {
+              error = '连接超时';
+              testClient.destroy();
+              resolve();
+            }
+          }, 2000);
+        });
+
+        if (connected) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true,
+            message: `本地端口 ${proxy.localPort} 连接成功`,
+            proxy: { remotePort: port, localPort: proxy.localPort }
+          }));
+        } else {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: false,
+            error: `本地端口 ${proxy.localPort} 连接失败: ${error}`
+          }));
+        }
+      } catch (e) {
+        const errorMessage = e instanceof Error ? e.message : String(e);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: errorMessage }));
+      }
+      return;
+    }
+
+    // ==================== 正向穿透 API ====================
+
+    // forward list - 列出正向穿透代理
+    if (url === '/_ctc/forward/list' && req.method === 'GET') {
+      const proxies = Array.from(this.forwardProxies.entries()).map(([key, value]) => ({
+        localPort: value.localPort,
+        targetClientId: value.targetClientId,
+        targetPort: value.targetPort,
+        enabled: true,
+      }));
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ proxies }));
+      return;
+    }
+
+    // forward add - 添加正向穿透代理
+    if (url === '/_ctc/forward/add' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { localPort: number; targetClientId: string; targetPort: number };
+          const key = `${data.localPort}`;
+
+          if (this.addForwardProxyCallback) {
+            await this.addForwardProxyCallback({
+              ...data,
+              enabled: true,
+            });
+          }
+
+          this.forwardProxies.set(key, {
+            localPort: data.localPort,
+            targetClientId: data.targetClientId,
+            targetPort: data.targetPort,
+          });
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true }));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
+      return;
+    }
+
+    // forward remove - 移除正向穿透代理
+    if (url === '/_ctc/forward/remove' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { localPort: number };
+          const key = `${data.localPort}`;
+          const deleted = this.forwardProxies.delete(key);
+
+          if (this.removeForwardProxyCallback) {
+            await this.removeForwardProxyCallback(data.localPort);
+          }
+
+          if (deleted) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ success: true }));
+          } else {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '代理不存在' }));
+          }
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
+      return;
+    }
+
+    // forward clients - 获取客户端列表
+    if (url === '/_ctc/forward/clients' && req.method === 'GET') {
+      if (!this.getClientListCallback) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '服务未就绪' }));
+        return;
+      }
+
+      try {
+        const result = await this.getClientListCallback();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: errorMessage }));
+      }
+      return;
+    }
+
+    // forward register - 注册到服务器
+    if (url === '/_ctc/forward/register' && req.method === 'POST') {
+      let body = '';
+      req.on('data', (chunk) => { body += chunk; });
+      req.on('end', async () => {
+        try {
+          const data = JSON.parse(body) as { description?: string };
+          if (!this.registerClientCallback) {
+            res.writeHead(503, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: '服务未就绪' }));
+            return;
+          }
+
+          const result = await this.registerClientCallback(data.description);
+
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify(result));
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: errorMessage }));
+        }
+      });
+      return;
+    }
+
+    // reconnect - 主动重连到服务器
+    if (url === '/_ctc/reconnect' && req.method === 'POST') {
+      if (!this.reconnectCallback) {
+        res.writeHead(503, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: '重连服务未就绪' }));
+        return;
+      }
+
+      try {
+        await this.reconnectCallback();
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: '正在重连...' }));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: errorMessage }));
+      }
       return;
     }
 

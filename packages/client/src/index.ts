@@ -13,9 +13,28 @@ import { Controller } from './controller.js';
 import { ProxyManager } from './proxy-manager.js';
 import { AdminServer, ClientStatus } from './admin-server.js';
 import { IpcHandler } from './ipc-handler.js';
-import { ProxyConfig, logger } from '@feng3d/chuantou-shared';
+import { ProxyConfig, ProxyConfigWithIndex, logger } from '@feng3d/chuantou-shared';
 import { join } from 'path';
 import { homedir } from 'os';
+import { ForwardProxy } from './forward-proxy.js';
+import { writeFile } from 'fs';
+import type { ForwardProxyEntry } from '@feng3d/chuantou-shared';
+
+/**
+ * 更新配置文件中的代理列表
+ */
+async function updateConfigProxies(proxies: ProxyConfig[]): Promise<void> {
+  const config = await Config.load();
+  config.proxies = proxies;
+  const configPath = join(homedir(), '.chuantou', 'client', 'config.json');
+  writeFile(configPath, JSON.stringify(config, null, 2), 'utf-8', (err) => {
+    if (err) {
+      logger.error('更新配置文件失败:', err);
+    } else {
+      logger.log('配置文件已更新');
+    }
+  });
+}
 
 /**
  * 导出核心类和类型，供作为库使用时引用。
@@ -26,7 +45,8 @@ export { ProxyManager } from './proxy-manager.js';
 export { AdminServer } from './admin-server.js';
 export { UnifiedHandler } from './handlers/unified-handler.js';
 export { IpcHandler } from './ipc-handler.js';
-export type { ClientConfig, ProxyConfig } from '@feng3d/chuantou-shared';
+export { ForwardProxy } from './forward-proxy.js';
+export type { ClientConfig, ProxyConfig, ForwardProxyConfig } from '@feng3d/chuantou-shared';
 
 /**
  * 客户端主入口函数（独立运行模式）。
@@ -66,39 +86,121 @@ async function main(): Promise<void> {
   // 创建代理管理器
   const proxyManager = new ProxyManager(controller);
 
+  // 创建正向穿透代理
+  const forwardProxy = new ForwardProxy(controller);
+
   // 已注册的代理配置列表（用于管理页面）
-  const registeredProxies: ProxyConfig[] = [];
+  const registeredProxies: ProxyConfigWithIndex[] = [];
+  let nextProxyIndex = 1;
   for (const p of config.proxies) {
-    registeredProxies.push({ ...p });
+    registeredProxies.push({ ...p, index: nextProxyIndex++ });
   }
 
   // 创建管理页面服务器
-  const adminServer = new AdminServer(
-    { port: 9001, host: '127.0.0.1' },
-    // 获取状态回调
-    (): ClientStatus => ({
+  const adminServerConfig = { port: config.adminPort, host: '127.0.0.1' };
+
+  // 获取状态回调
+  const getStatusCallback = (): ClientStatus => {
+    // 获取实际在 ProxyManager 中注册的端口
+    const actualRegisteredPorts = proxyManager.getRegisteredPorts();
+
+    // 过滤出实际注册的代理配置，去重
+    const actualRegisteredProxies = registeredProxies
+      .filter(p => actualRegisteredPorts.includes(p.remotePort))
+      .filter((p, index, self) => {
+        // 去重：只保留第一次出现的端口
+        return index === self.findIndex(other => other.remotePort === p.remotePort);
+      });
+
+    const status: ClientStatus = {
       running: true,
       serverUrl: config.serverUrl,
       connected: controller.isConnected(),
       authenticated: controller.isAuthenticated(),
       uptime: Date.now() - startTime,
-      proxies: registeredProxies.map(p => ({ ...p })),
+      proxies: actualRegisteredProxies,
       reconnectAttempts: controller.getReconnectAttempts(),
-    }),
-    // 添加代理回调
-    async (proxy: ProxyConfig): Promise<void> => {
-      await proxyManager.registerProxy(proxy);
-      registeredProxies.push({ ...proxy });
-    },
-    // 删除代理回调
-    async (remotePort: number): Promise<void> => {
-      await proxyManager.unregisterProxy(remotePort);
-      const index = registeredProxies.findIndex(p => p.remotePort === remotePort);
-      if (index !== -1) {
-        registeredProxies.splice(index, 1);
-      }
+    };
+
+    // 添加正向穿透相关信息
+    try {
+      const forwardProxies = forwardProxy.getProxies();
+      status.forwardProxies = forwardProxies;
+      status.isRegistered = true; // 假设已注册（实际应从 Controller 获取）
+      status.clientId = controller.getClientId();
+    } catch (e) {
+      // 如果获取失败，返回基础状态
     }
+
+    return status;
+  };
+
+  // 添加代理回调
+  const addProxyCallback = async (proxy: ProxyConfig): Promise<void> => {
+    await proxyManager.registerProxy(proxy);
+    registeredProxies.push({ ...proxy, index: nextProxyIndex++ });
+    // 同步更新配置文件
+    await updateConfigProxies(registeredProxies.map(p => ({ remotePort: p.remotePort, localPort: p.localPort, localHost: p.localHost })));
+  };
+
+  // 删除代理回调
+  const removeProxyCallback = async (remotePort: number): Promise<void> => {
+    await proxyManager.unregisterProxy(remotePort);
+    const index = registeredProxies.findIndex(p => p.remotePort === remotePort);
+    if (index !== -1) {
+      registeredProxies.splice(index, 1);
+    }
+    // 同步更新配置文件
+    await updateConfigProxies(registeredProxies);
+  };
+
+  // 添加正向穿透回调
+  const addForwardProxyCallback = async (entry: ForwardProxyEntry): Promise<void> => {
+    await forwardProxy.addProxy(entry);
+  };
+
+  // 删除正向穿透回调
+  const removeForwardProxyCallback = async (localPort: number): Promise<void> => {
+    await forwardProxy.removeProxy(localPort);
+  };
+
+  // 注册客户端回调
+  const registerClientCallback = async (description?: string): Promise<void> => {
+    return await forwardProxy.registerAsClient(description);
+  };
+
+  // 获取客户端列表回调
+  const getClientListCallback = async (): Promise<any> => {
+    return await forwardProxy.getClientList();
+  };
+
+  // 重连回调
+  const reconnectCallback = async (): Promise<void> => {
+    logger.log('收到手动重连请求');
+    // 先断开现有连接
+    controller.disconnect();
+    // 然后重新连接
+    await controller.connect();
+  };
+
+  // 创建管理页面服务器
+  const adminServer = new AdminServer(
+    adminServerConfig,
+    getStatusCallback,
+    addProxyCallback,
+    removeProxyCallback,
+    addForwardProxyCallback,
+    removeForwardProxyCallback,
+    registerClientCallback,
+    getClientListCallback,
+    undefined, // sendMessage 会在后面设置
+    reconnectCallback
   );
+
+  // 设置发送消息回调（用于正向穿透向服务端发送消息）
+  adminServer.setSendMessageCallback(async (message: any) => {
+    return await controller.sendRequest(message);
+  });
 
   // 监听控制器事件
   controller.on('connected', () => {
@@ -112,28 +214,23 @@ async function main(): Promise<void> {
   controller.on('authenticated', async () => {
     logger.log('已认证，正在注册代理...');
 
-    // 注册所有代理
+    // 获取实际在 ProxyManager 中注册的端口
+    const actualRegisteredPorts = proxyManager.getRegisteredPorts();
+
+    // 注册所有代理（只注册尚未实际注册的）
     for (const proxyConfig of config.proxies) {
+      if (actualRegisteredPorts.includes(proxyConfig.remotePort)) {
+        logger.log(`代理 :${proxyConfig.remotePort} 已注册，跳过`);
+        continue;
+      }
+
       try {
         await proxyManager.registerProxy(proxyConfig);
-        // 代理配置已在初始化时添加到 registeredProxies
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         logger.error(`注册代理失败: ${errorMessage}`);
       }
     }
-
-    // 启动管理页面服务器
-    try {
-      await adminServer.start();
-    } catch (error) {
-      logger.error('管理页面启动失败:', error);
-    }
-  });
-
-  controller.on('maxReconnectAttemptsReached', () => {
-    logger.error('已达到最大重连次数，正在退出...');
-    process.exit(1);
   });
 
   // 设置 IPC 请求监听（用于处理 CLI 添加代理的请求）
@@ -144,6 +241,13 @@ async function main(): Promise<void> {
     registeredProxies,
   });
   ipcHandler.start();
+
+  // 启动管理页面服务器（立即启动，不等待认证）
+  try {
+    await adminServer.start();
+  } catch (error) {
+    logger.error('管理页面启动失败:', error);
+  }
 
   // 优雅关闭
   const shutdown = async () => {
@@ -158,22 +262,31 @@ async function main(): Promise<void> {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  // 连接到服务器
-  try {
-    await controller.connect();
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    logger.error('连接服务器失败:', errorMessage);
+  // 未捕获异常处理 - 崩溃时记录退出码
+  process.on('uncaughtException', (error) => {
+    logger.error('未捕获异常:', error);
+    // 写入非零退出码，让父进程知道是异常退出
     process.exit(1);
-  }
+  });
+
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('未处理的 Promise 拒绝:', reason);
+    // 写入非零退出码
+    process.exit(1);
+  });
+
+  // 连接到服务器（不会抛出连接失败的异常，会自动重连）
+  await controller.connect();
 }
 
 // 检查是否作为主模块运行
-const isMainModule = import.meta.url === `file://${process.argv[1].replace(/\\/g, '/')}`;
+// 使用更简单的方式：通过检查是否直接运行此文件
+const isMainModule = process.argv[1] && process.argv[1].endsWith('index.js');
 
 if (isMainModule) {
   main().catch((error) => {
     logger.error('启动客户端失败:', error);
+    // 注意：main() 内部已经处理了资源清理
     process.exit(1);
   });
 }

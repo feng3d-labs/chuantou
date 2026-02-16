@@ -30,7 +30,6 @@ import { DataChannel } from './data-channel.js';
  * - `connected` — 成功连接到服务器
  * - `disconnected` — 与服务器断开连接
  * - `authenticated` — 身份认证成功
- * - `maxReconnectAttemptsReached` — 达到最大重连次数
  * - `newConnection` — 收到新的代理连接请求
  * - `connectionClose` — 收到连接关闭通知
  * - `connectionError` — 收到连接错误通知
@@ -81,7 +80,7 @@ export class Controller extends EventEmitter {
    * 建立 WebSocket 连接 → 认证 → 建立数据通道 → 启动心跳。
    */
   async connect(): Promise<void> {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>((resolve) => {
       logger.log(`正在连接 ${this.config.serverUrl}...`);
 
       this.ws = new WebSocket(this.config.serverUrl);
@@ -89,16 +88,19 @@ export class Controller extends EventEmitter {
       this.ws.on('open', async () => {
         logger.log('已连接到服务器');
         this.connected = true;
-        this.reconnectAttempts = 0;
         this.emit('connected');
 
         try {
           await this.authenticate();
           await this.establishDataChannels();
           this.startHeartbeat();
+          this.reconnectAttempts = 0;
           resolve();
         } catch (error) {
-          reject(error);
+          // 认证或数据通道建立失败，触发重连
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          logger.error(`初始化失败: ${errorMessage}`);
+          this.ws?.close();
         }
       });
 
@@ -119,9 +121,7 @@ export class Controller extends EventEmitter {
 
       this.ws.on('error', (error) => {
         logger.error('WebSocket 错误:', error.message);
-        if (!this.connected) {
-          reject(error);
-        }
+        // 不再 reject，让 close 事件处理重连
       });
     });
   }
@@ -196,14 +196,15 @@ export class Controller extends EventEmitter {
       return;
     }
 
+    // 检查是否已达到最大重连次数
     if (this.reconnectAttempts >= this.config.maxReconnectAttempts) {
-      logger.error('已达到最大重连次数');
+      logger.error(`已达到最大重连次数 (${this.reconnectAttempts})，停止重连`);
       this.emit('maxReconnectAttemptsReached');
       return;
     }
 
     const delay = this.calculateReconnectDelay();
-    logger.log(`将在 ${delay}ms 后重连... (第 ${this.reconnectAttempts + 1}/${this.config.maxReconnectAttempts} 次尝试)`);
+    logger.log(`将在 ${delay}ms 后重连... (第 ${this.reconnectAttempts + 1} 次尝试)`);
 
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
@@ -231,10 +232,15 @@ export class Controller extends EventEmitter {
       const message = JSON.parse(data.toString());
       const msgType = message.type;
 
+      // 先发射通用的 controlMessage 事件，供其他模块使用
+      this.emit('controlMessage', message);
+
       switch (msgType) {
         case MessageType.AUTH_RESP:
         case MessageType.REGISTER_RESP:
         case MessageType.HEARTBEAT_RESP:
+        case MessageType.CLIENT_REGISTER_RESP:
+        case MessageType.CLIENT_LIST:
           this.handleResponse(message);
           break;
 
@@ -248,6 +254,11 @@ export class Controller extends EventEmitter {
 
         case MessageType.CONNECTION_ERROR:
           this.emit('connectionError', message as ConnectionErrorMessage);
+          break;
+
+        case MessageType.INCOMING_CONNECTION:
+        case MessageType.CONNECTION_ESTABLISHED:
+          // 这些消息通过 controlMessage 事件处理
           break;
 
         default:

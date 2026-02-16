@@ -191,10 +191,16 @@ export class DataChannel extends EventEmitter {
    */
   sendData(connectionId: string, data: Buffer): boolean {
     if (this.tcpSocket && !this.tcpSocket.destroyed) {
-      this.tcpSocket.write(writeDataFrame(connectionId, data));
-      return true;
+      return this.tcpSocket.write(writeDataFrame(connectionId, data));
     }
     return false;
+  }
+
+  /**
+   * 获取 TCP 数据通道 socket（用于 drain 背压处理）
+   */
+  getTcpSocket(): Socket | null {
+    return this.tcpSocket && !this.tcpSocket.destroyed ? this.tcpSocket : null;
   }
 
   /**

@@ -65,11 +65,12 @@ describe('ProxyManager', () => {
   });
 
   describe('registerProxy', () => {
-    it('should send register message to controller', async () => {
+    it('should send register message to controller when authenticated', async () => {
       const sendRequestSpy = vi.spyOn(controller, 'sendRequest').mockResolvedValue({
         type: MessageType.REGISTER_RESP,
         payload: { success: true, remoteUrl: 'http://localhost:8080' },
       });
+      vi.spyOn(controller, 'isAuthenticated').mockReturnValue(true);
 
       const proxyConfig: ProxyConfig = {
         remotePort: 8080,
@@ -96,6 +97,7 @@ describe('ProxyManager', () => {
         type: MessageType.REGISTER_RESP,
         payload: { success: false, error: '端口已被占用' },
       });
+      vi.spyOn(controller, 'isAuthenticated').mockReturnValue(true);
 
       const proxyConfig: ProxyConfig = {
         remotePort: 8080,
@@ -107,10 +109,11 @@ describe('ProxyManager', () => {
     });
 
     it('should create handler on successful registration', async () => {
-      vi.spyOn(controller, 'sendRequest').mockResolvedValue({
+      const sendRequestSpy = vi.spyOn(controller, 'sendRequest').mockResolvedValue({
         type: MessageType.REGISTER_RESP,
         payload: { success: true, remoteUrl: 'http://localhost:8080' },
       });
+      vi.spyOn(controller, 'isAuthenticated').mockReturnValue(true);
 
       const proxyConfig: ProxyConfig = {
         remotePort: 8080,
@@ -120,7 +123,7 @@ describe('ProxyManager', () => {
 
       await proxyManager.registerProxy(proxyConfig);
       // Handler should be created (verified by mock being called)
-      expect(controller['sendRequest']).toHaveBeenCalled();
+      expect(sendRequestSpy).toHaveBeenCalled();
     });
 
     it('should handle handler error events', async () => {
@@ -128,6 +131,7 @@ describe('ProxyManager', () => {
         type: MessageType.REGISTER_RESP,
         payload: { success: true, remoteUrl: 'http://localhost:8080' },
       });
+      vi.spyOn(controller, 'isAuthenticated').mockReturnValue(true);
 
       const proxyConfig: ProxyConfig = {
         remotePort: 8080,
@@ -151,8 +155,9 @@ describe('ProxyManager', () => {
   });
 
   describe('unregisterProxy', () => {
-    it('should send unregister message to controller', async () => {
+    it('should send unregister message to controller when connected', async () => {
       const sendRequestSpy = vi.spyOn(controller, 'sendRequest').mockResolvedValue({});
+      vi.spyOn(controller, 'isConnected').mockReturnValue(true);
 
       await proxyManager.unregisterProxy(8080);
 
@@ -164,8 +169,18 @@ describe('ProxyManager', () => {
       );
     });
 
+    it('should not send unregister message when not connected', async () => {
+      const sendRequestSpy = vi.spyOn(controller, 'sendRequest').mockResolvedValue({});
+      vi.spyOn(controller, 'isConnected').mockReturnValue(false);
+
+      await proxyManager.unregisterProxy(8080);
+
+      expect(sendRequestSpy).not.toHaveBeenCalled();
+    });
+
     it('should not throw when unregistering non-existent proxy', async () => {
       vi.spyOn(controller, 'sendRequest').mockResolvedValue({});
+      vi.spyOn(controller, 'isConnected').mockReturnValue(true);
 
       await expect(proxyManager.unregisterProxy(9999)).resolves.not.toThrow();
     });
@@ -177,6 +192,7 @@ describe('ProxyManager', () => {
         type: MessageType.REGISTER_RESP,
         payload: { success: true, remoteUrl: 'http://localhost:8080' },
       });
+      vi.spyOn(controller, 'isConnected').mockReturnValue(true);
 
       // 注册两个代理
       await proxyManager.registerProxy({ remotePort: 8080, localPort: 3000, localHost: 'localhost' });
@@ -215,11 +231,14 @@ describe('ProxyManager', () => {
 
       await proxyManager.registerProxy({ remotePort: 8080, localPort: 3000, localHost: 'localhost' });
 
+      // 验证处理器已创建
+      expect((proxyManager as any).handlers.size).toBe(1);
+
       // 触发断开连接事件
       controller.emit('disconnected');
 
       // Handlers should be cleared
-      expect(controller['sendRequest']).toHaveBeenCalled();
+      expect((proxyManager as any).handlers.size).toBe(0);
     });
   });
 });

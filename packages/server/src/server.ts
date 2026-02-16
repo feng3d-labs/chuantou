@@ -16,134 +16,14 @@ import { createServer as createHttpServer, IncomingMessage, ServerResponse, Serv
 import { createServer as createHttpsServer } from 'https';
 import { createServer as createTcpServer, Server as TcpServer, Socket } from 'net';
 import { createSocket as createUdpSocket, Socket as UdpSocket } from 'dgram';
+import { readFile } from 'fs';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
 import { ServerConfig, DEFAULT_CONFIG, logger, isDataChannelAuth } from '@feng3d/chuantou-shared';
 import { SessionManager } from './session-manager.js';
 import { ControlHandler } from './handlers/control-handler.js';
 import { UnifiedProxyHandler } from './handlers/unified-proxy.js';
 import { DataChannelManager } from './data-channel.js';
-
-/** 状态页面 HTML 模板 */
-const STATUS_HTML = `<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>穿透服务器状态</title>
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      min-height: 100vh; color: #e0e0e0; padding: 20px;
-    }
-    .container { max-width: 800px; margin: 0 auto; }
-    .header {
-      text-align: center; margin-bottom: 30px; padding: 30px 20px;
-      background: rgba(255,255,255,0.05); border-radius: 16px;
-      backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1);
-    }
-    .header h1 {
-      font-size: 28px; margin-bottom: 8px;
-      background: linear-gradient(90deg, #00d9ff, #00ff88);
-      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
-    }
-    .header .status {
-      display: inline-flex; align-items: center; gap: 8px;
-      padding: 6px 16px; border-radius: 20px; font-size: 14px; font-weight: 500;
-    }
-    .status.running { background: rgba(0, 255, 136, 0.15); color: #00ff88; }
-    .status.running::before {
-      content: ""; width: 8px; height: 8px; border-radius: 50%;
-      background: #00ff88; animation: pulse 1.5s infinite;
-    }
-    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-    .grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px; margin-bottom: 20px;
-    }
-    .card {
-      background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
-      border: 1px solid rgba(255,255,255,0.1); backdrop-filter: blur(10px);
-    }
-    .card-label { font-size: 12px; color: #888; margin-bottom: 6px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .card-value { font-size: 24px; font-weight: 600; color: #fff; }
-    .card-value .unit { font-size: 14px; color: #888; font-weight: 400; }
-    .sessions {
-      background: rgba(255,255,255,0.05); border-radius: 12px; padding: 20px;
-      border: 1px solid rgba(255,255,255,0.1); margin-top: 20px;
-    }
-    .sessions-title { font-size: 14px; color: #888; margin-bottom: 16px; text-transform: uppercase; letter-spacing: 0.5px; }
-    .session-item {
-      display: flex; justify-content: space-between; align-items: center;
-      padding: 12px 16px; background: rgba(0,0,0,0.2); border-radius: 8px; margin-bottom: 8px; font-size: 14px;
-    }
-    .session-item:last-child { margin-bottom: 0; }
-    .session-id { font-family: monospace; color: #00d9ff; }
-    .session-time { color: #888; }
-    .empty-state { text-align: center; padding: 30px; color: #666; font-size: 14px; }
-    .footer { text-align: center; margin-top: 30px; padding: 20px; color: #666; font-size: 12px; }
-    .last-update { text-align: center; color: #666; font-size: 12px; margin-top: 10px; }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="header">
-      <h1>feng3d-cts 穿透服务器</h1>
-      <div class="status running" id="status">运行中</div>
-    </div>
-    <div class="grid">
-      <div class="card"><div class="card-label">监听地址</div><div class="card-value" id="host">-</div></div>
-      <div class="card"><div class="card-label">运行时长</div><div class="card-value"><span id="uptime">-</span><span class="unit"> 秒</span></div></div>
-      <div class="card"><div class="card-label">客户端</div><div class="card-value"><span id="clients">0</span><span class="unit"> 个</span></div></div>
-      <div class="card"><div class="card-label">端口</div><div class="card-value"><span id="ports">0</span><span class="unit"> 个</span></div></div>
-      <div class="card"><div class="card-label">连接数</div><div class="card-value"><span id="connections">0</span><span class="unit"> 个</span></div></div>
-      <div class="card"><div class="card-label">TLS</div><div class="card-value" id="tls">-</div></div>
-    </div>
-    <div class="sessions">
-      <div class="sessions-title">客户端会话</div>
-      <div id="sessions-list"></div>
-    </div>
-    <div class="last-update">最后更新: <span id="lastUpdate">-</span></div>
-    <div class="footer">
-      <a href="https://github.com/feng3d/chuantou" target="_blank" style="color: #00d9ff; text-decoration: none;">feng3d-cts</a> — 内网穿透服务端
-    </div>
-  </div>
-  <script>
-    function formatUptime(ms) {
-      var s = Math.floor(ms/1000), m = Math.floor(s/60), h = Math.floor(m/60), d = Math.floor(h/24);
-      if (d > 0) return d+'天 '+(h%24)+'小时';
-      if (h > 0) return h+'小时 '+(m%60)+'分钟';
-      if (m > 0) return m+'分钟 '+(s%60)+'秒';
-      return s+'秒';
-    }
-    async function updateStatus() {
-      try {
-        var res = await fetch('/_chuantou/status');
-        var data = await res.json();
-        document.getElementById('host').textContent = data.host+':'+data.controlPort;
-        document.getElementById('uptime').textContent = formatUptime(data.uptime);
-        document.getElementById('clients').textContent = data.authenticatedClients;
-        document.getElementById('ports').textContent = data.totalPorts;
-        document.getElementById('connections').textContent = data.activeConnections;
-        document.getElementById('tls').textContent = data.tls ? '已启用' : '已禁用';
-        document.getElementById('lastUpdate').textContent = new Date().toLocaleTimeString('zh-CN');
-        var sessionsRes = await fetch('/_chuantou/sessions');
-        var sessions = await sessionsRes.json();
-        var listEl = document.getElementById('sessions-list');
-        if (sessions.length === 0) {
-          listEl.innerHTML = '<div class="empty-state">暂无客户端连接</div>';
-        } else {
-          listEl.innerHTML = sessions.map(function(s) {
-            return '<div class="session-item"><span class="session-id">'+s.clientId.slice(0,8)+'...</span><span class="session-time">连接于 '+new Date(s.connectedAt).toLocaleTimeString('zh-CN')+'</span></div>';
-          }).join('');
-        }
-      } catch (e) { console.error('获取状态失败:', e); }
-    }
-    updateStatus();
-    setInterval(updateStatus, 3000);
-  </script>
-</body>
-</html>`;
 
 /**
  * 服务器状态信息接口
@@ -183,6 +63,11 @@ export class ForwardServer {
   private statsInterval?: ReturnType<typeof setInterval>;
   private startedAt?: number;
 
+  /**
+   * 静态文件目录常量
+   */
+  private static readonly STATIC_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'admin-ui', 'dist');
+
   constructor(options: Partial<ServerConfig> = {}) {
     this.config = {
       host: options.host ?? '0.0.0.0',
@@ -202,6 +87,7 @@ export class ForwardServer {
       this.sessionManager,
       this.config,
       this.proxyHandler,
+      this.dataChannelManager,
     );
     this.controlServer = new WebSocketServer({ noServer: true });
   }
@@ -236,6 +122,11 @@ export class ForwardServer {
     this.tcpServer = createTcpServer({ pauseOnConnect: true });
 
     this.tcpServer.on('connection', (socket: Socket) => {
+      socket.on('error', (error) => {
+        logger.error('控制端口连接错误:', error.message);
+        socket.destroy();
+      });
+
       socket.once('readable', () => {
         const data = socket.read(Math.min(socket.readableLength || 1024, 1024)) as Buffer | null;
 
@@ -308,15 +199,51 @@ export class ForwardServer {
     }
   }
 
-  private handleHttpRequest(req: IncomingMessage, res: ServerResponse): void {
+  private async handleHttpRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const url = req.url ?? '/';
 
+    // 静态文件服务 - 首页读取模板文件
     if (url === '/' && req.method === 'GET') {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(STATUS_HTML);
+      const templatePath = join(ForwardServer.STATIC_DIR, 'template.html');
+      readFile(templatePath, 'utf-8', (err, data) => {
+        if (err) {
+          console.error('模板文件读取错误:', err);
+          res.writeHead(500, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('Error loading page');
+        } else {
+          res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+          res.end(data);
+        }
+      });
       return;
     }
 
+    // 处理静态文件请求 (支持 .js, .css 等静态资源直接从根路径访问）
+    if (req.method === 'GET' && url !== '/' && !url.startsWith('/_chuantou/')) {
+      const fileName = url.slice(1) as string; // 去掉开头的 /
+      const filePath = join(ForwardServer.STATIC_DIR, fileName);
+
+      readFile(filePath, 'utf-8', (err, data) => {
+        if (err || !data) {
+          console.error('静态文件读取错误:', err);
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+          res.end('File not found');
+          return;
+        }
+        const ext = fileName.split('.').pop() || 'html';
+        const contentType = ext === 'css' ? 'text/css; charset=utf-8' :
+                         ext === 'js' ? 'text/javascript; charset=utf-8' : 'text/html; charset=utf-8';
+
+        res.writeHead(200, {
+          'Content-Type': contentType,
+          'Cache-Control': 'public, max-age=3600'
+        });
+        res.end(data);
+      });
+      return;
+    }
+
+    // 服务器状态 API
     if (url === '/_chuantou/status' && req.method === 'GET') {
       const status = this.getStatus();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -324,6 +251,7 @@ export class ForwardServer {
       return;
     }
 
+    // 客户端会话列表 API
     if (url === '/_chuantou/sessions' && req.method === 'GET') {
       const sessions = this.sessionManager.getSessions();
       res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -331,6 +259,91 @@ export class ForwardServer {
       return;
     }
 
+    // 端口映射列表 API
+    if (url === '/_chuantou/ports' && req.method === 'GET') {
+      const sessions = this.sessionManager.getSessions();
+      const ports: Array<{ port: number; clientId: string; connections: number; description: string }> = [];
+
+      // 添加客户端注册的端口
+      for (const session of sessions) {
+        const clientInfo = this.sessionManager.getClientInfo(session.clientId);
+        if (clientInfo) {
+          for (const port of clientInfo.registeredPorts) {
+            // 获取该端口的活跃连接数
+            const connectionCount = clientInfo.connections.size;
+            ports.push({
+              port,
+              clientId: session.clientId,
+              connections: connectionCount,
+              description: '客户端反向代理端口',
+            });
+          }
+        }
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ports }));
+      return;
+    }
+
+    // 断开客户端会话 API
+    if (url.startsWith('/_chuantou/sessions/') && url.endsWith('/disconnect') && req.method === 'POST') {
+      const clientId = url.slice('/_chuantou/sessions/'.length, -'/disconnect'.length);
+      const clientInfo = this.sessionManager.getClientInfo(clientId);
+      if (clientInfo) {
+        // 关闭 WebSocket 连接
+        const socket = this.sessionManager.getClientSocket(clientId);
+        if (socket) {
+          socket.close();
+        }
+        this.sessionManager.removeSession(clientId);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, message: '客户端已断开' }));
+      } else {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: '客户端不存在' }));
+      }
+      return;
+    }
+
+    // 清理孤立端口 API（删除在 UnifiedProxyHandler 中存在但不在 SessionManager 中的端口）
+    if (url === '/_chuantou/cleanup' && req.method === 'POST') {
+      const activePorts = this.proxyHandler.getActivePorts();
+      const registeredPorts = this.sessionManager.getAllRegisteredPorts();
+      const orphanPorts: number[] = [];
+
+      for (const port of activePorts) {
+        if (!registeredPorts.has(port)) {
+          orphanPorts.push(port);
+        }
+      }
+
+      if (orphanPorts.length > 0) {
+        logger.log(`发现 ${orphanPorts.length} 个孤立端口: ${orphanPorts.join(', ')}`);
+      }
+
+      // 清理孤立端口
+      const cleanedPorts: number[] = [];
+      for (const port of orphanPorts) {
+        try {
+          await this.proxyHandler.stopProxy(port);
+          cleanedPorts.push(port);
+          logger.log(`已清理孤立端口: ${port}`);
+        } catch (error) {
+          logger.error(`清理端口 ${port} 失败:`, error);
+        }
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        success: true,
+        found: orphanPorts.length,
+        cleaned: cleanedPorts.length,
+        ports: cleanedPorts,
+      }));
+      return;
+    }
+
+    // 停止服务器 API
     if (url === '/_chuantou/stop' && req.method === 'POST') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ message: '服务器正在停止' }));
@@ -338,8 +351,8 @@ export class ForwardServer {
       return;
     }
 
-    res.writeHead(200);
-    res.end('穿透服务器正在运行');
+    res.writeHead(404);
+    res.end('Not Found');
   }
 
   async stop(): Promise<void> {

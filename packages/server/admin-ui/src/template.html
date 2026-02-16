@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>穿透服务端管理</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>feng3d-cts 穿透服务端</h1>
+      <div class="status running" id="status">运行中</div>
+    </div>
+
+    <div class="grid">
+      <div class="card">
+        <div class="card-label">监听地址</div>
+        <div class="card-value" id="host">-</div>
+      </div>
+      <div class="card">
+        <div class="card-label">运行时长</div>
+        <div class="card-value"><span id="uptime">-</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">客户端</div>
+        <div class="card-value"><span id="clients">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">端口</div>
+        <div class="card-value"><span id="ports">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">连接数</div>
+        <div class="card-value"><span id="connections">0</span><span class="unit"> 个</span></div>
+      </div>
+      <div class="card">
+        <div class="card-label">TLS</div>
+        <div class="card-value" id="tls">-</div>
+      </div>
+    </div>
+
+    <!-- 标签切换 -->
+    <div class="tabs">
+      <button class="tab active" id="tabSessions" onclick="switchTab('sessions')">客户端会话</button>
+      <button class="tab" id="tabPorts" onclick="switchTab('ports')">端口映射</button>
+      <button class="tab" id="tabGuide" onclick="switchTab('guide')">使用说明</button>
+    </div>
+
+    <!-- 客户端会话面板 -->
+    <div class="section" id="sessionsPanel">
+      <div class="section-header">
+        <div class="section-title">客户端会话</div>
+      </div>
+
+      <div class="section-info">
+        显示所有已连接的客户端，包括客户端 ID、连接时间和注册的端口数量。
+      </div>
+
+      <div id="sessionsList"></div>
+    </div>
+
+    <!-- 端口映射面板 -->
+    <div class="section hidden" id="portsPanel">
+      <div class="section-header">
+        <div class="section-title">端口映射</div>
+        <button class="btn btn-secondary btn-sm" onclick="cleanupOrphanPorts()">清理孤立端口</button>
+      </div>
+
+      <div class="section-info">
+        显示所有客户端注册的端口映射关系，包括端口号、所属客户端和活跃连接数。
+      </div>
+
+      <div id="portsList"></div>
+    </div>
+
+    <!-- 使用说明面板 -->
+    <div class="usage-guide hidden" id="guidePanel">
+      <div class="usage-title">使用说明</div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">服务端管理命令</div>
+        <div class="usage-text">
+          <strong>启动服务器：</strong><code>npx @feng3d/cts start</code><br>
+          <strong>查看状态：</strong><code>npx @feng3d/cts status</code><br>
+          <strong>查看会话：</strong><code>npx @feng3d/cts sessions list</code><br>
+          <strong>查看端口：</strong><code>npx @feng3d/cts ports list</code><br>
+          <strong>重启服务：</strong><code>npx @feng3d/cts restart</code><br>
+          <strong>停止服务：</strong><code>npx @feng3d/cts stop</code>
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">端口说明</div>
+        <div class="usage-text">
+          <strong>控制端口（默认 9000）：</strong>用于 WebSocket 控制通道、HTTP 管理界面和数据通道复用。<br>
+          <strong>协议复用：</strong>同一端口同时支持 WebSocket 控制消息和 TCP/UDP 数据转发。<br>
+          <strong>认证机制：</strong>使用令牌进行客户端认证，可在启动时通过 <code>--tokens</code> 参数配置。
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">配置管理</div>
+        <div class="usage-text">
+          <strong>查看配置：</strong><code>npx @feng3d/cts config list</code><br>
+          <strong>设置配置：</strong><code>npx @feng3d/cts config set tokens token1,token2</code><br>
+          <strong>编辑配置：</strong><code>npx @feng3d/cts config edit</code>
+        </div>
+      </div>
+
+      <div class="usage-section">
+        <div class="usage-subtitle">日志管理</div>
+        <div class="usage-text">
+          <strong>查看日志：</strong><code>npx @feng3d/cts logs</code><br>
+          <strong>跟踪日志：</strong><code>npx @feng3d/cts logs -f</code>
+        </div>
+      </div>
+    </div>
+
+    <div class="last-update">最后更新: <span id="lastUpdate">-</span></div>
+
+    <div class="footer">
+      <a href="https://github.com/feng3d/chuantou" target="_blank">feng3d-cts</a>
+      — 内网穿透服务端
+    </div>
+  </div>
+
+  <!-- 断开连接确认模态框 -->
+  <div class="modal" id="disconnectModal">
+    <div class="modal-content">
+      <div class="modal-title">确认断开连接</div>
+      <div class="modal-body" id="modalBody">确定要断开此客户端的连接吗？</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" id="cancelDisconnect">取消</button>
+        <button class="btn btn-danger" id="confirmDisconnect">断开连接</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
