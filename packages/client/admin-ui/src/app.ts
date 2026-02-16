@@ -3,6 +3,8 @@
  * @description 客户端管理页面前端交互逻辑
  */
 
+import './style.css';
+
 declare var document: Document;
 declare var event: Event | undefined;
 
@@ -677,3 +679,18 @@ if (document.readyState === 'loading') {
 } else {
   init();
 }
+
+// 将 HTML onclick 调用的函数暴露到全局
+declare global {
+  interface Window {
+    switchTab: (tab: any) => void;
+    showDeleteModal: (port: number, type: 'reverse' | 'forward') => void;
+    selectClient: (clientId: string) => void;
+    manualReconnect: () => Promise<void>;
+  }
+}
+
+window.switchTab = switchTab;
+window.showDeleteModal = showDeleteModal;
+window.selectClient = selectClient;
+window.manualReconnect = manualReconnect;

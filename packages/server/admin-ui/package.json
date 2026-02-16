@@ -6,12 +6,13 @@
   "description": "Admin UI for feng3d-cts server",
   "files": ["dist"],
   "scripts": {
-    "build": "tsc && pnpm run copy:assets",
-    "copy:assets": "cp src/*.html src/*.css dist/",
+    "build": "vite build",
     "clean": "rm -rf dist",
-    "watch": "tsc --watch"
+    "watch": "vite build --watch",
+    "dev": "vite build --watch"
   },
   "devDependencies": {
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vite": "^5.0.0"
   }
 }

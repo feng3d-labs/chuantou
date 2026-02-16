@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>穿透服务端管理</title>
-  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div class="container">
@@ -42,9 +41,9 @@
 
     <!-- 标签切换 -->
     <div class="tabs">
-      <button class="tab active" id="tabSessions" onclick="switchTab('sessions')">客户端会话</button>
-      <button class="tab" id="tabPorts" onclick="switchTab('ports')">端口映射</button>
-      <button class="tab" id="tabGuide" onclick="switchTab('guide')">使用说明</button>
+      <button class="tab active" id="tabSessions" onclick="window.switchTab('sessions')">客户端会话</button>
+      <button class="tab" id="tabPorts" onclick="window.switchTab('ports')">端口映射</button>
+      <button class="tab" id="tabGuide" onclick="window.switchTab('guide')">使用说明</button>
     </div>
 
     <!-- 客户端会话面板 -->
@@ -64,7 +63,7 @@
     <div class="section hidden" id="portsPanel">
       <div class="section-header">
         <div class="section-title">端口映射</div>
-        <button class="btn btn-secondary btn-sm" onclick="cleanupOrphanPorts()">清理孤立端口</button>
+        <button class="btn btn-secondary btn-sm" onclick="window.cleanupOrphanPorts()">清理孤立端口</button>
       </div>
 
       <div class="section-info">
@@ -139,6 +138,6 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="./src/app.ts"></script>
 </body>
 </html>

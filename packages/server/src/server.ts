@@ -204,7 +204,7 @@ export class ForwardServer {
 
     // 静态文件服务 - 首页读取模板文件
     if (url === '/' && req.method === 'GET') {
-      const templatePath = join(ForwardServer.STATIC_DIR, 'template.html');
+      const templatePath = join(ForwardServer.STATIC_DIR, 'index.html');
       readFile(templatePath, 'utf-8', (err, data) => {
         if (err) {
           console.error('模板文件读取错误:', err);

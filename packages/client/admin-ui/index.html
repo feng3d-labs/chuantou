@@ -4,7 +4,6 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>穿透客户端管理</title>
-  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <div class="container">
@@ -12,7 +11,7 @@
       <h1>🔌 feng3d-ctc 穿透客户端</h1>
       <div class="header-actions">
         <div class="status running" id="status">运行中</div>
-        <button class="btn btn-primary btn-sm" id="reconnectBtn" onclick="manualReconnect()">主动连接</button>
+        <button class="btn btn-primary btn-sm" id="reconnectBtn" onclick="window.manualReconnect()">主动连接</button>
       </div>
     </div>
 
@@ -45,9 +44,9 @@
 
     <!-- 标签切换 -->
     <div class="tabs">
-      <button class="tab active" id="tabReverse" onclick="switchTab('reverse')">反向代理模式</button>
-      <button class="tab" id="tabForward" onclick="switchTab('forward')">正向穿透模式</button>
-      <button class="tab" id="tabGuide" onclick="switchTab('guide')">使用说明</button>
+      <button class="tab active" id="tabReverse" onclick="window.switchTab('reverse')">反向代理模式</button>
+      <button class="tab" id="tabForward" onclick="window.switchTab('forward')">正向穿透模式</button>
+      <button class="tab" id="tabGuide" onclick="window.switchTab('guide')">使用说明</button>
     </div>
 
     <!-- 反向代理面板 -->
@@ -217,6 +216,6 @@
 
   <div class="toast" id="toast"></div>
 
-  <script src="/app.js"></script>
+  <script type="module" src="./src/app.ts"></script>
 </body>
 </html>

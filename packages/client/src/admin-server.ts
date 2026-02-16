@@ -94,7 +94,7 @@ export class AdminServer {
   /**
    * HTML 模板文件路径
    */
-  private static readonly TEMPLATE_PATH = join(AdminServer.STATIC_DIR, 'template.html');
+  private static readonly TEMPLATE_PATH = join(AdminServer.STATIC_DIR, 'index.html');
 
   /**
    * 创建管理服务器实例
